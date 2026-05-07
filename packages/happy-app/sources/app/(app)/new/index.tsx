@@ -63,6 +63,8 @@ import {
     getEffortLevelsForModel,
     getSupportsWorktree,
     includeConfiguredModel,
+    getDefaultModelKey,
+    getDefaultPermissionModeKey,
     type PermissionMode,
     type ModelMode,
     type EffortLevel,
@@ -723,6 +725,14 @@ const PromptInput = React.memo(React.forwardRef<MultiTextInputHandle, PromptInpu
     },
 ));
 
+function getSessionAgentType(session: Session): NewSessionAgentType {
+    const flavor = session.metadata?.flavor;
+    if (flavor === 'codex' || flavor === 'gemini' || flavor === 'openclaw' || flavor === 'claude') {
+        return flavor;
+    }
+    return 'claude';
+}
+
 function NewSessionScreen() {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
@@ -740,6 +750,7 @@ function NewSessionScreen() {
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
     const zenMode = useLocalSetting('zenMode');
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+    const lastUsedPermissionMode = useSetting('lastUsedPermissionMode');
 
     // Persisted draft state (survives navigation).
     //
@@ -802,6 +813,7 @@ function NewSessionScreen() {
     React.useEffect(() => () => {
         isMountedRef.current = false;
     }, []);
+    const permissionSelectionTouchedRef = React.useRef(false);
 
     // Config collapse — auto-collapses when typing, expands when empty
     const [isConfigExpanded, setIsConfigExpanded] = React.useState(true);
@@ -1062,36 +1074,87 @@ function NewSessionScreen() {
     const showEffort = effortLevels.length > 0;
     const showPermission = permissionModes.length > 1;
 
-    // Reset indices when agent/default settings change.
-    React.useEffect(() => {
-        setPermissionIndex(findPreferredModeIndex(permissionModes, [
-            draft.permissionMode,
-            effectiveAgentDefaults.permissionMode,
-            // When the saved and default modes were both filtered out for an
-            // old CLI, land on the flavor's code default rather than whichever
-            // mode happens to lead the list.
-            rigCreation ? null : getCodeAgentDefaults(selectedAgent, happyCliVersion).permissionMode,
-        ]));
+    const machinePreferredPermissionModeKey = React.useMemo<string | null>(() => {
+        if (!selectedMachineId || !sessions) {
+            return null;
+        }
 
-        setModelIndex(findPreferredModeIndex(modelModes, [
-            draft.modelMode,
-            effectiveAgentDefaults.modelMode,
-        ]));
+        const recentSessions = sessions
+            .filter((item): item is Session => typeof item !== 'string')
+            .filter((session) => session.metadata?.machineId === selectedMachineId)
+            .filter((session) => getSessionAgentType(session) === selectedAgent)
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+
+        for (const session of recentSessions) {
+            const candidateKeys = [session.permissionMode, session.metadata?.currentOperatingModeCode];
+            for (const key of candidateKeys) {
+                if (key && permissionModes.some((mode) => mode.key === key)) {
+                    return key;
+                }
+            }
+        }
+
+        return null;
+    }, [selectedMachineId, sessions, selectedAgent, permissionModes]);
+
+    React.useEffect(() => {
+        permissionSelectionTouchedRef.current = false;
+    }, [selectedAgent, selectedMachineId]);
+
+    // Reset permission index when context changes:
+    // 1) honor explicit draft choice
+    // 2) otherwise follow machine's recent session mode (desktop startup behavior)
+    // 3) fallback to last used setting
+    // 4) fallback to configured agent default
+    React.useEffect(() => {
+        const draftPermIdx = permissionModes.findIndex(m => m.key === draft.permissionMode);
+        const defaultPermIdx = permissionModes.findIndex(m => m.key === effectiveAgentDefaults.permissionMode);
+        const lastUsedPermIdx = lastUsedPermissionMode
+            ? permissionModes.findIndex(m => m.key === lastUsedPermissionMode)
+            : -1;
+
+        const preferredPermissionKey =
+            (permissionSelectionTouchedRef.current && draftPermIdx >= 0 ? draft.permissionMode : null)
+            ?? (draft.permissionMode !== 'default' && draftPermIdx >= 0 ? draft.permissionMode : null)
+            ?? machinePreferredPermissionModeKey
+            ?? (lastUsedPermIdx >= 0 && lastUsedPermissionMode ? lastUsedPermissionMode : null)
+            ?? (defaultPermIdx >= 0 ? effectiveAgentDefaults.permissionMode : null)
+            ?? (draftPermIdx >= 0 ? draft.permissionMode : null)
+            ?? getDefaultPermissionModeKey(selectedAgent);
+
+        const preferredPermIdx = permissionModes.findIndex(m => m.key === preferredPermissionKey);
+        setPermissionIndex(preferredPermIdx >= 0 ? preferredPermIdx : 0);
+
+        if (
+            !permissionSelectionTouchedRef.current &&
+            preferredPermissionKey &&
+            preferredPermissionKey !== draft.permissionMode
+        ) {
+            draft.setPermissionMode(preferredPermissionKey);
+        }
+    }, [
+        selectedAgent,
+        permissionModes,
+        draft.permissionMode,
+        draft.setPermissionMode,
+        machinePreferredPermissionModeKey,
+        lastUsedPermissionMode,
+        effectiveAgentDefaults.permissionMode,
+    ]);
+
+    // Reset model index when agent changes — try draft key first, then defaults
+    React.useEffect(() => {
+        const draftModelIdx = modelModes.findIndex(m => m.key === draft.modelMode);
+        const defaultModelIdx = modelModes.findIndex(m => m.key === effectiveAgentDefaults.modelMode);
+        const fallbackDefaultModelIdx = modelModes.findIndex(m => m.key === getDefaultModelKey(selectedAgent));
+        setModelIndex(draftModelIdx >= 0
+            ? draftModelIdx
+            : (defaultModelIdx >= 0
+                ? defaultModelIdx
+                : (fallbackDefaultModelIdx >= 0 ? fallbackDefaultModelIdx : 0)));
 
         if (!canPickWorktree) setWorktreeKey('__none__');
-    }, [
-        permissionModes,
-        modelModes,
-        canPickWorktree,
-        supportsWorktree,
-        draft.permissionMode,
-        draft.modelMode,
-        effectiveAgentDefaults.permissionMode,
-        effectiveAgentDefaults.modelMode,
-        rigCreation,
-        happyCliVersion,
-        selectedAgent,
-    ]);
+    }, [selectedAgent, modelModes, draft.modelMode, canPickWorktree, effectiveAgentDefaults.modelMode]);
 
     // Reset effort when model changes
     React.useEffect(() => {
@@ -1168,6 +1231,33 @@ function NewSessionScreen() {
         composerInputRef.current?.blur();
         Keyboard.dismiss();
     }, [activePicker, cancelPendingPickerOpen, closePicker, isDesktop]);
+
+    const cyclePermission = React.useCallback(() => {
+        permissionSelectionTouchedRef.current = true;
+        setPermissionIndex(i => {
+            const next = (i + 1) % permissionModes.length;
+            draft.setPermissionMode(permissionModes[next]?.key ?? 'default');
+            return next;
+        });
+    }, [permissionModes, draft.setPermissionMode]);
+
+    const cycleModel = React.useCallback(() => {
+        setModelIndex(i => {
+            const next = (i + 1) % modelModes.length;
+            draft.setModelMode(modelModes[next]?.key ?? 'default');
+            return next;
+        });
+    }, [modelModes, draft.setModelMode]);
+
+    const cycleEffort = React.useCallback(() => {
+        setEffortIndex(i => (i + 1) % effortLevels.length);
+    }, [effortLevels.length]);
+
+    const cycleAgent = React.useCallback(() => {
+        const idx = availableAgents.findIndex(a => a.key === selectedAgent);
+        const next = availableAgents[(idx + 1) % availableAgents.length].key;
+        setSelectedAgent(next);
+    }, [availableAgents, selectedAgent, setSelectedAgent]);
 
     const isOffline = selectedMachine ? !isMachineOnline(selectedMachine) : false;
     const agent = availableAgents.find(a => a.key === selectedAgent)
@@ -1464,6 +1554,15 @@ function NewSessionScreen() {
                 spawnDirectory = worktreeSelection;
             }
 
+            // Persist last used settings
+            draft.setPermissionMode(currentPermission?.key ?? 'default');
+            draft.setModelMode(currentModelKey);
+            sync.applySettings({
+                lastUsedAgent: selectedAgent,
+                lastUsedPermissionMode: permissionKey,
+                lastUsedModelMode: currentModelKey,
+            });
+
             const spawnOptions = spawnRigCreation
                 ? {
                     machineId: machine.id,
@@ -1504,10 +1603,40 @@ function NewSessionScreen() {
             if (!isMountedRef.current) return;
 
             switch (result.type) {
-                case 'success':
+                case 'success': {
                     // The idempotency key did its job; the next Start is a new session.
                     completeSpawnRequest();
                     await sync.refreshSessions();
+
+                    // A freshly created session may not have reached local storage
+                    // yet — poll briefly before continuing (mobile reliability).
+                    const waitForSpawnedSession = async (): Promise<Session | null> => {
+                        for (let attempt = 0; attempt < 4; attempt++) {
+                            const found = storage.getState().sessions[result.sessionId];
+                            if (found) {
+                                return found;
+                            }
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            await sync.refreshSessions();
+                        }
+                        return storage.getState().sessions[result.sessionId] ?? null;
+                    };
+
+                    const spawnedSession = await waitForSpawnedSession();
+                    if (!spawnedSession) {
+                        Modal.alert(
+                            t('common.error'),
+                            `Session ${result.sessionId} was created on machine, but this phone can't load it yet. Re-authenticate terminal from Settings and try again.`
+                        );
+                        return;
+                    }
+                    if (!spawnedSession.metadata) {
+                        Modal.alert(
+                            t('common.error'),
+                            'Session was created, but metadata could not be decrypted on this phone. Re-authenticate terminal from Settings and try again.'
+                        );
+                        return;
+                    }
 
                     const currentEffortKey = currentEffort?.key ?? null;
                     // Pin the actual launch selection to this session. A
@@ -1538,6 +1667,7 @@ function NewSessionScreen() {
                     router.back();
                     navigateToSession(result.sessionId);
                     break;
+                }
                 case 'requestToApproveDirectoryCreation': {
                     const approved = await Modal.confirm(
                         'Create Directory?',
@@ -1569,7 +1699,7 @@ function NewSessionScreen() {
         } finally {
             if (isMountedRef.current) setIsSpawning(false);
         }
-    }, [allMachines, canPickWorktree, currentEffort?.key, currentModelKey, currentPermission?.key, effectiveAgentDefaults.effortLevel, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.permissionMode, navigateToSession, picksWorkspaces, router, selectedAgent, selectedMachineId, selectedPath, worktreeKey]);
+    }, [allMachines, canPickWorktree, currentEffort?.key, currentModelKey, currentPermission?.key, draft.setModelMode, draft.setPermissionMode, effectiveAgentDefaults.effortLevel, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.permissionMode, navigateToSession, picksWorkspaces, router, selectedAgent, selectedMachineId, selectedPath, worktreeKey]);
 
     const canSend = selectedMachineId && selectedMachine && isMachineOnline(selectedMachine) && !isSpawning;
     React.useEffect(() => {

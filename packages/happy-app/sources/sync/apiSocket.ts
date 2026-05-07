@@ -4,6 +4,7 @@ import Constants from 'expo-constants';
 import { TokenStorage } from '@/auth/tokenStorage';
 import { Encryption } from './encryption/encryption';
 import { storage } from './storage';
+import { log } from '@/log';
 
 export function getHappyClientId(): string {
     let platform: string = Platform.OS; // 'ios' | 'android' | 'web'
@@ -67,6 +68,7 @@ class ApiSocket {
     private reconnectedListeners: Set<() => void> = new Set();
     private statusListeners: Set<(status: 'disconnected' | 'connecting' | 'connected' | 'error') => void> = new Set();
     private currentStatus: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
+    private lastError: Error | null = null;
 
     //
     // Initialization
@@ -87,7 +89,9 @@ class ApiSocket {
             return;
         }
 
+        this.lastError = null;
         this.updateStatus('connecting');
+        log.log(`🔌 SyncSocket connecting to ${this.config.endpoint} (path=/v1/updates)`);
 
         this.socket = io(this.config.endpoint, {
             path: '/v1/updates',
@@ -118,6 +122,7 @@ class ApiSocket {
             this.socket.disconnect();
             this.socket = null;
         }
+        this.lastError = null;
         this.updateStatus('disconnected');
     }
 
@@ -304,6 +309,8 @@ class ApiSocket {
                 console.log('🔌 SyncSocket: Connected, recovered: ' + this.socket?.recovered);
                 console.log('🔌 SyncSocket: Socket ID:', this.socket?.id);
             }
+            this.lastError = null;
+            log.log(`🔌 SyncSocket connected (id=${this.socket?.id ?? 'unknown'}, recovered=${String(this.socket?.recovered)})`);
             this.updateStatus('connected');
             if (!this.socket?.recovered) {
                 this.reconnectedListeners.forEach(listener => listener());
@@ -314,6 +321,7 @@ class ApiSocket {
             if (this.isVerboseLogging()) {
                 console.log('🔌 SyncSocket: Disconnected', reason);
             }
+            log.log(`🔌 SyncSocket disconnected: ${String(reason)}`);
             this.updateStatus('disconnected');
         });
 
@@ -322,6 +330,8 @@ class ApiSocket {
             if (this.isVerboseLogging()) {
                 console.error('🔌 SyncSocket: Connection error', error);
             }
+            this.lastError = this.formatSocketError(error);
+            log.log(`🔌 SyncSocket connect_error: ${this.lastError.message}`);
             this.updateStatus('error');
         });
 
@@ -329,6 +339,8 @@ class ApiSocket {
             if (this.isVerboseLogging()) {
                 console.error('🔌 SyncSocket: Error', error);
             }
+            this.lastError = this.formatSocketError(error);
+            log.log(`🔌 SyncSocket error: ${this.lastError.message}`);
             this.updateStatus('error');
         });
 
@@ -342,6 +354,23 @@ class ApiSocket {
                 handler(data);
             }
         });
+    }
+
+    private formatSocketError(error: unknown): Error {
+        if (!error) {
+            return new Error('unknown error');
+        }
+        if (error instanceof Error) {
+            return error;
+        }
+        if (typeof error === 'string') {
+            return new Error(error);
+        }
+        try {
+            return new Error(JSON.stringify(error));
+        } catch {
+            return new Error(String(error));
+        }
     }
 }
 

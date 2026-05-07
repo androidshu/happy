@@ -115,6 +115,10 @@ export class GeminiPermissionHandler extends BasePermissionHandler {
         toolName: string,
         input: unknown
     ): Promise<PermissionResult> {
+        if (this.isSessionAutoApprovalEnabled()) {
+            return this.autoApproveForSession(toolCallId, toolName, input);
+        }
+
         // Check if we should auto-approve based on permission mode
         // Pass toolCallId to check by ID (e.g., change_title-* even if toolName is "other")
         if (this.shouldAutoApprove(toolName, toolCallId, input)) {
@@ -158,4 +162,3 @@ export class GeminiPermissionHandler extends BasePermissionHandler {
         });
     }
 }
-

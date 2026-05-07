@@ -2,12 +2,14 @@ const { execFileSync } = require('node:child_process');
 
 const variant = process.env.APP_ENV || 'development';
 const name = {
-    development: "Happy (dev)",
+    development: "HappyD",
+    release: "HappyR",
     preview: "Happy (preview)",
     production: "Happy"
 }[variant];
 const bundleId = {
     development: "com.slopus.happy.dev",
+    release: "com.slopus.happy.release",
     preview: "com.slopus.happy.preview",
     production: "com.ex3ndr.happy"
 }[variant];
@@ -15,13 +17,21 @@ const bundleId = {
 const productionElevenLabsAgentId = 'agent_6701k211syvvegba4kt7m68nxjmw';
 const elevenLabsAgentId = {
     development: productionElevenLabsAgentId,
+    release: productionElevenLabsAgentId,
     preview: productionElevenLabsAgentId,
     production: productionElevenLabsAgentId,
 }[variant];
 const consoleLoggingDefault = {
     development: true,
+    release: false,
     preview: true,
     production: false,
+}[variant];
+const updateChannel = {
+    development: "development",
+    release: "release-local",
+    preview: "preview",
+    production: "production"
 }[variant];
 
 function git(args) {
@@ -97,6 +107,8 @@ export default {
                 monochromeImage: "./sources/assets/images/icon-monochrome.png",
                 backgroundColor: "#000000"
             },
+            // Allow manual HTTP dev-server URL input in the Android development build.
+            usesCleartextTraffic: variant === 'development',
             permissions: [
                 "android.permission.RECORD_AUDIO",
                 "android.permission.MODIFY_AUDIO_SETTINGS",
@@ -207,10 +219,12 @@ export default {
                 }
             ]
         ],
-        updates: {
+        updates: variant === 'development' || variant === 'release' ? {
+            enabled: false
+        } : {
             url: "https://u.expo.dev/4558dd3d-cd5a-47cd-bad9-e591a241cc06",
             requestHeaders: {
-                "expo-channel-name": "production"
+                "expo-channel-name": updateChannel
             }
         },
         experiments: {

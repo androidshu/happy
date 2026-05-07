@@ -1168,6 +1168,9 @@ class Sync {
                 let decrypted = await this.encryption.decryptEncryptionKey(session.dataEncryptionKey);
                 if (!decrypted) {
                     console.error(`Failed to decrypt data encryption key for session ${session.id}`);
+                    // Keep session visible even when decryption fails on this device.
+                    // This prevents "session deleted" false-positives after spawn.
+                    sessionKeys.set(session.id, null);
                     continue;
                 }
                 sessionKeys.set(session.id, decrypted);
@@ -1184,25 +1187,43 @@ class Sync {
             const sessionEncryption = this.encryption.getSessionEncryption(session.id);
             if (!sessionEncryption) {
                 console.error(`Session encryption not found for ${session.id} - this should never happen`);
+                decryptedSessions.push({
+                    ...session,
+                    thinking: false,
+                    thinkingAt: 0,
+                    metadata: null,
+                    agentState: null
+                });
                 continue;
             }
 
-            // Decrypt metadata using session-specific encryption
-            let metadata = await sessionEncryption.decryptMetadata(session.metadataVersion, session.metadata);
+            try {
+                // Decrypt metadata using session-specific encryption
+                let metadata = await sessionEncryption.decryptMetadata(session.metadataVersion, session.metadata);
 
-            // Decrypt agent state using session-specific encryption
-            let agentState = await sessionEncryption.decryptAgentState(session.agentStateVersion, session.agentState);
+                // Decrypt agent state using session-specific encryption
+                let agentState = await sessionEncryption.decryptAgentState(session.agentStateVersion, session.agentState);
 
-            // Put it all together. Thinking placeholders are overwritten just
-            // before applySessions below.
-            const processedSession = {
-                ...session,
-                thinking: false,
-                thinkingAt: 0,
-                metadata,
-                agentState
-            };
-            decryptedSessions.push(processedSession);
+                // Put it all together
+                const processedSession = {
+                    ...session,
+                    thinking: false,
+                    thinkingAt: 0,
+                    metadata,
+                    agentState
+                };
+                decryptedSessions.push(processedSession);
+            } catch (error) {
+                // Keep sync resilient: one corrupted/undecryptable session should not block machines/new-session flow.
+                console.error(`Failed to decrypt session ${session.id}:`, error);
+                decryptedSessions.push({
+                    ...session,
+                    thinking: false,
+                    thinkingAt: 0,
+                    metadata: null,
+                    agentState: null
+                });
+            }
         }
 
         // Thinking state exists only in activity ephemerals — the server

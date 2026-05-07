@@ -13,6 +13,13 @@ import { render } from 'ink';
 import React from 'react';
 import { randomUUID } from 'node:crypto';
 import { logger } from './logger';
+import { open, stat, unlink } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
+
+const AUTH_LOCKFILE_PATH = `${configuration.privateKeyFile}.auth.lock`;
+const AUTH_LOCK_STALE_MS = 5 * 60 * 1000;
+const AUTH_WAIT_TIMEOUT_MS = 90 * 1000;
+const AUTH_WAIT_POLL_MS = 1000;
 
 export async function doAuth(): Promise<Credentials | null> {
     console.clear();
@@ -257,20 +264,7 @@ export async function authAndSetupMachineIfNeeded(): Promise<{
     logger.debug('[AUTH] Starting auth and machine setup...');
 
     // Step 1: Handle authentication
-    let credentials = await readCredentials();
-    let newAuth = false;
-
-    if (!credentials) {
-        logger.debug('[AUTH] No credentials found, starting authentication flow...');
-        const authResult = await doAuth();
-        if (!authResult) {
-            throw new Error('Authentication failed or was cancelled');
-        }
-        credentials = authResult;
-        newAuth = true;
-    } else {
-        logger.debug('[AUTH] Using existing credentials');
-    }
+    const { credentials, newAuth } = await resolveCredentialsWithSharedAuth();
 
     // Make sure we have a machine ID
     // Server machine entity will be created either by the daemon or by the CLI
@@ -287,4 +281,96 @@ export async function authAndSetupMachineIfNeeded(): Promise<{
     logger.debug(`[AUTH] Machine ID: ${settings.machineId}`);
 
     return { credentials, machineId: settings.machineId! };
+}
+
+async function resolveCredentialsWithSharedAuth(): Promise<{
+    credentials: Credentials;
+    newAuth: boolean;
+}> {
+    const existingCredentials = await readCredentials();
+    if (existingCredentials) {
+        logger.debug('[AUTH] Using existing credentials');
+        return { credentials: existingCredentials, newAuth: false };
+    }
+
+    const authDeadline = Date.now() + AUTH_WAIT_TIMEOUT_MS;
+    while (true) {
+        const authLock = await tryAcquireAuthLock();
+        if (authLock) {
+            try {
+                const credentialsAfterLock = await readCredentials();
+                if (credentialsAfterLock) {
+                    logger.debug('[AUTH] Credentials became available while waiting on auth lock');
+                    return { credentials: credentialsAfterLock, newAuth: false };
+                }
+
+                logger.debug('[AUTH] No credentials found, starting authentication flow...');
+                const authResult = await doAuth();
+                if (!authResult) {
+                    throw new Error('Authentication failed or was cancelled');
+                }
+                return { credentials: authResult, newAuth: true };
+            } finally {
+                await releaseAuthLock(authLock);
+            }
+        }
+
+        logger.debug('[AUTH] Another Happy process is completing authentication, waiting for shared credentials...');
+        const sharedCredentials = await waitForSharedCredentials(authDeadline);
+        if (sharedCredentials) {
+            logger.debug('[AUTH] Reusing credentials written by another Happy process');
+            return { credentials: sharedCredentials, newAuth: false };
+        }
+
+        if (Date.now() >= authDeadline) {
+            logger.warn('[AUTH] Timed out waiting for another process to finish authentication; retrying locally');
+        }
+    }
+}
+
+async function tryAcquireAuthLock(): Promise<FileHandle | null> {
+    try {
+        return await open(AUTH_LOCKFILE_PATH, 'wx');
+    } catch (error: any) {
+        if (error?.code !== 'EEXIST') {
+            throw error;
+        }
+
+        try {
+            const lockStats = await stat(AUTH_LOCKFILE_PATH);
+            if ((Date.now() - lockStats.mtimeMs) > AUTH_LOCK_STALE_MS) {
+                logger.warn('[AUTH] Found stale authentication lock, cleaning it up');
+                await unlink(AUTH_LOCKFILE_PATH).catch(() => { });
+                return await open(AUTH_LOCKFILE_PATH, 'wx');
+            }
+        } catch {
+            // If the lock disappears while we inspect it, the caller can simply retry.
+        }
+
+        return null;
+    }
+}
+
+async function releaseAuthLock(lock: FileHandle) {
+    await lock.close().catch(() => { });
+    await unlink(AUTH_LOCKFILE_PATH).catch(() => { });
+}
+
+async function waitForSharedCredentials(deadline: number): Promise<Credentials | null> {
+    while (Date.now() < deadline) {
+        const sharedCredentials = await readCredentials();
+        if (sharedCredentials) {
+            return sharedCredentials;
+        }
+
+        try {
+            await stat(AUTH_LOCKFILE_PATH);
+        } catch {
+            return await readCredentials();
+        }
+
+        await delay(AUTH_WAIT_POLL_MS);
+    }
+
+    return await readCredentials();
 }

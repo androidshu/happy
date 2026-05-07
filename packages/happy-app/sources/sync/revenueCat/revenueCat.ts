@@ -4,7 +4,7 @@ import Purchases, {
     PurchasesStoreProduct,
     LOG_LEVEL
 } from 'react-native-purchases';
-import RevenueCatUI, { PAYWALL_RESULT, CustomVariableValue } from 'react-native-purchases-ui';
+import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import { 
     RevenueCatInterface, 
     CustomerInfo, 
@@ -25,6 +25,8 @@ const logLevelMap = {
     [LogLevel.WARN]: LOG_LEVEL.WARN,
     [LogLevel.ERROR]: LOG_LEVEL.ERROR
 };
+
+const customVariableString = (value: string) => ({ type: 'string' as const, value });
 
 class RevenueCatNative implements RevenueCatInterface {
     configure(config: RevenueCatConfig): void {
@@ -86,14 +88,14 @@ class RevenueCatNative implements RevenueCatInterface {
             // Convert custom variables to RevenueCat format
             const nativeCustomVars = options?.customVariables
                 ? Object.fromEntries(
-                    Object.entries(options.customVariables).map(([k, v]) => [k, CustomVariableValue.string(v)])
+                    Object.entries(options.customVariables).map(([k, v]) => [k, customVariableString(v)])
                 )
                 : undefined;
 
             const nativeResult = await RevenueCatUI.presentPaywall({
                 ...(nativeOffering && { offering: nativeOffering }),
                 ...(nativeCustomVars && { customVariables: nativeCustomVars }),
-            });
+            } as Parameters<typeof RevenueCatUI.presentPaywall>[0] & { customVariables?: typeof nativeCustomVars });
 
             switch (nativeResult) {
                 case PAYWALL_RESULT.NOT_PRESENTED:
@@ -127,7 +129,7 @@ class RevenueCatNative implements RevenueCatInterface {
             
             const nativeCustomVars = options?.customVariables
                 ? Object.fromEntries(
-                    Object.entries(options.customVariables).map(([k, v]) => [k, CustomVariableValue.string(v)])
+                    Object.entries(options.customVariables).map(([k, v]) => [k, customVariableString(v)])
                 )
                 : undefined;
 
@@ -135,7 +137,7 @@ class RevenueCatNative implements RevenueCatInterface {
                 offering: nativeOffering,
                 requiredEntitlementIdentifier: options?.requiredEntitlementIdentifier || 'pro',
                 ...(nativeCustomVars && { customVariables: nativeCustomVars }),
-            });
+            } as Parameters<typeof RevenueCatUI.presentPaywallIfNeeded>[0] & { customVariables?: typeof nativeCustomVars });
             
             // Map native paywall result to our enum
             switch (nativeResult) {

@@ -7,14 +7,15 @@ vi.mock('@/ui/logger', () => ({
     },
 }));
 
-function createSessionMock() {
-    let state: Record<string, any> = {};
+function createSessionMock(initialState: Record<string, any> = {}) {
+    let state: Record<string, any> = initialState;
 
     return {
         session: {
             rpcHandlerManager: {
                 registerHandler: vi.fn(),
             },
+            getAgentState: vi.fn(() => state),
             updateAgentState: vi.fn((updater: (currentState: Record<string, any>) => Record<string, any>) => {
                 state = updater(state);
                 return state;
@@ -120,6 +121,33 @@ describe('CodexPermissionHandler', () => {
         expect(result).toEqual({ decision: 'approved' });
         expect(getState().completedRequests['thread-1:change_title-1765385846663']).toMatchObject({
             status: 'approved',
+        });
+    });
+
+    it('auto-approves later tool calls after approved_for_session is restored from state', async () => {
+        const { session, getState } = createSessionMock({
+            completedRequests: {
+                previous: {
+                    tool: 'Bash',
+                    arguments: { command: 'pwd' },
+                    decision: 'approved_for_session',
+                },
+            },
+        });
+        const handler = new CodexPermissionHandler(session as any);
+
+        const result = await handler.handleToolCall(
+            'call_exec_after_session_approval',
+            'Bash',
+            { command: 'pwd' },
+        );
+
+        expect(result).toEqual({ decision: 'approved_for_session' });
+        expect(getState().completedRequests.call_exec_after_session_approval).toMatchObject({
+            tool: 'Bash',
+            arguments: { command: 'pwd' },
+            status: 'approved',
+            decision: 'approved_for_session',
         });
     });
 });

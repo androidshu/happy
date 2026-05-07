@@ -1,6 +1,6 @@
 import { MarkdownSpan, parseMarkdown } from './parseMarkdown';
 import * as React from 'react';
-import { Image, Pressable, View, Platform } from 'react-native';
+import { Image, Pressable, View, Platform, useWindowDimensions } from 'react-native';
 import { HorizontalScrollView } from '../HorizontalScrollView';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native-unistyles';
@@ -17,6 +17,7 @@ import { MermaidRenderer } from './MermaidRenderer';
 import { t } from '@/text';
 import { isHttpMarkdownLink } from './linkUtils';
 import { openExternalUrl } from '@/utils/openExternalUrl';
+import { resolveMarkdownImageWidth } from './imageLayout';
 
 // Option type for callback
 export type Option = {
@@ -214,9 +215,11 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
 
 function RenderImageBlock(props: { url: string, alt: string, first: boolean, last: boolean }) {
     const accessibleLabel = props.alt || 'Markdown image';
+    const { width: viewportWidth } = useWindowDimensions();
+    const imageWidth = resolveMarkdownImageWidth(viewportWidth);
 
     return (
-        <View style={[style.imageBlock, props.first && style.first, props.last && style.last]}>
+        <View style={[style.imageBlock, { width: imageWidth }, props.first && style.first, props.last && style.last]}>
             <Image
                 source={{ uri: props.url }}
                 style={style.image}
@@ -536,7 +539,6 @@ const style = StyleSheet.create((theme) => ({
         marginBottom: 8,
     },
     imageBlock: {
-        width: '100%',
         maxWidth: 520,
         marginVertical: 8,
         alignSelf: 'flex-start',

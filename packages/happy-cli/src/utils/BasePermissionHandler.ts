@@ -47,6 +47,7 @@ export abstract class BasePermissionHandler {
     protected pendingRequests = new Map<string, PendingRequest>();
     protected session: ApiSessionClient;
     private isResetting = false;
+    private approveRemainingForSession = false;
 
     /**
      * Returns the log prefix for this handler.
@@ -55,6 +56,7 @@ export abstract class BasePermissionHandler {
 
     constructor(session: ApiSessionClient) {
         this.session = session;
+        this.restoreSessionApprovalFromState();
         this.setupRpcHandler();
     }
 
@@ -65,8 +67,22 @@ export abstract class BasePermissionHandler {
     updateSession(newSession: ApiSessionClient): void {
         logger.debug(`${this.getLogPrefix()} Session reference updated`);
         this.session = newSession;
+        this.restoreSessionApprovalFromState();
         // Re-setup RPC handler with new session
         this.setupRpcHandler();
+    }
+
+    private restoreSessionApprovalFromState(): void {
+        const agentState = this.session.getAgentState();
+        const hasSessionApproval = Object.values(agentState?.completedRequests || {}).some(
+            (request) => request.decision === 'approved_for_session'
+        );
+
+        if (hasSessionApproval && !this.approveRemainingForSession) {
+            logger.debug(`${this.getLogPrefix()} Restored session-wide auto-approval from agent state`);
+        }
+
+        this.approveRemainingForSession = this.approveRemainingForSession || hasSessionApproval;
     }
 
     /**
@@ -76,6 +92,13 @@ export abstract class BasePermissionHandler {
         this.session.rpcHandlerManager.registerHandler<PermissionResponse, void>(
             'permission',
             async (response) => {
+                if (response.approved && response.decision === 'approved_for_session') {
+                    if (!this.approveRemainingForSession) {
+                        logger.debug(`${this.getLogPrefix()} Session-wide auto-approval enabled`);
+                    }
+                    this.approveRemainingForSession = true;
+                }
+
                 const pending = this.pendingRequests.get(response.id);
                 if (!pending) {
                     logger.debug(`${this.getLogPrefix()} Permission request not found or already resolved`);
@@ -118,6 +141,38 @@ export abstract class BasePermissionHandler {
                 logger.debug(`${this.getLogPrefix()} Permission ${response.approved ? 'approved' : 'denied'} for ${pending.toolName}`);
             }
         );
+    }
+
+    /**
+     * Returns true when the user has approved "for this session" and future tool calls
+     * should skip interactive permission prompts.
+     */
+    protected isSessionAutoApprovalEnabled(): boolean {
+        return this.approveRemainingForSession;
+    }
+
+    /**
+     * Mark a tool request as auto-approved due to a prior "approve for session" decision.
+     */
+    protected autoApproveForSession(toolCallId: string, toolName: string, input: unknown): PermissionResult {
+        logger.debug(`${this.getLogPrefix()} Auto-approving tool ${toolName} (${toolCallId}) due to session-wide approval`);
+
+        this.session.updateAgentState((currentState) => ({
+            ...currentState,
+            completedRequests: {
+                ...currentState.completedRequests,
+                [toolCallId]: {
+                    tool: toolName,
+                    arguments: input,
+                    createdAt: Date.now(),
+                    completedAt: Date.now(),
+                    status: 'approved',
+                    decision: 'approved_for_session'
+                }
+            }
+        }));
+
+        return { decision: 'approved_for_session' };
     }
 
     /**

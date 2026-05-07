@@ -98,6 +98,10 @@ export class CodexPermissionHandler extends BasePermissionHandler {
             return { decision: 'approved' };
         }
 
+        if (this.isSessionAutoApprovalEnabled()) {
+            return this.autoApproveForSession(toolCallId, toolName, input);
+        }
+
         return new Promise<PermissionResult>((resolve, reject) => {
             // Store the pending request
             this.pendingRequests.set(toolCallId, {

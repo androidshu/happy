@@ -9,11 +9,17 @@ import { useCheckScannerPermissions } from '@/hooks/useCheckCameraPermissions';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { sync } from '@/sync/sync';
+import { storage } from '@/sync/storage';
 
 interface UseConnectTerminalOptions {
     onSuccess?: () => void;
     onError?: (error: any) => void;
 }
+
+const SYNC_VALIDATION_ATTEMPTS = 3;
+const SYNC_VALIDATION_DELAY_MS = 1200;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function useConnectTerminal(options?: UseConnectTerminalOptions) {
     const auth = useAuth();
@@ -25,25 +31,65 @@ export function useConnectTerminal(options?: UseConnectTerminalOptions) {
             Modal.alert(t('common.error'), t('modals.invalidAuthUrl'), [{ text: t('common.ok') }]);
             return false;
         }
-        
+
+        if (!auth.credentials) {
+            Modal.alert(t('common.error'), 'Please sign in to Happy on this device before connecting a terminal.', [{ text: t('common.ok') }]);
+            return false;
+        }
+
         setIsLoading(true);
         try {
+            const beforeState = storage.getState();
+            const beforeSessionCount = Object.keys(beforeState.sessions).length;
+            const beforeMachineCount = Object.keys(beforeState.machines).length;
+
             const tail = url.slice('happy://terminal?'.length);
             const publicKey = decodeBase64(tail, 'base64url');
-            const responseV1 = encryptBox(decodeBase64(auth.credentials!.secret, 'base64url'), publicKey);
+            const responseV1 = encryptBox(decodeBase64(auth.credentials.secret, 'base64url'), publicKey);
             let responseV2Bundle = new Uint8Array(sync.encryption.contentDataKey.length + 1);
             responseV2Bundle[0] = 0;
             responseV2Bundle.set(sync.encryption.contentDataKey, 1);
             const responseV2 = encryptBox(responseV2Bundle, publicKey);
-            await authApprove(auth.credentials!.token, publicKey, responseV1, responseV2);
-            
-            Modal.alert(t('common.success'), t('modals.terminalConnectedSuccessfully'), [
-                { 
-                    text: t('common.ok'), 
-                    onPress: () => options?.onSuccess?.()
+            const approvalResult = await authApprove(auth.credentials.token, publicKey, responseV1, responseV2);
+
+            if (approvalResult === 'not_found') {
+                Modal.alert(t('common.error'), 'This terminal link is no longer valid. Please generate a fresh URL from the computer and try again.', [{ text: t('common.ok') }]);
+                return false;
+            }
+
+            let afterSessionCount = beforeSessionCount;
+            let afterMachineCount = beforeMachineCount;
+            for (let attempt = 0; attempt < SYNC_VALIDATION_ATTEMPTS; attempt++) {
+                await sync.refreshMachines();
+                await sync.refreshSessions();
+
+                const currentState = storage.getState();
+                afterSessionCount = Object.keys(currentState.sessions).length;
+                afterMachineCount = Object.keys(currentState.machines).length;
+
+                const hasDataNow = afterSessionCount > 0 || afterMachineCount > 0;
+                const dataChanged = afterSessionCount !== beforeSessionCount || afterMachineCount !== beforeMachineCount;
+                if (hasDataNow && (dataChanged || beforeSessionCount > 0 || beforeMachineCount > 0)) {
+                    Modal.alert(t('common.success'), t('modals.terminalConnectedSuccessfully'), [
+                        {
+                            text: t('common.ok'),
+                            onPress: () => options?.onSuccess?.()
+                        }
+                    ]);
+                    return true;
                 }
-            ]);
-            return true;
+
+                if (attempt < SYNC_VALIDATION_ATTEMPTS - 1) {
+                    await delay(SYNC_VALIDATION_DELAY_MS);
+                }
+            }
+
+            const needsRestoreHint = afterSessionCount === 0 && afterMachineCount === 0;
+            const message = needsRestoreHint
+                ? 'The terminal approved the link, but this app still has no synced machines or sessions. Please make sure this phone is signed in to the same Happy account, then try again.'
+                : 'The terminal approved the link, but the session list did not refresh correctly. Please reopen the app and try again.';
+            Modal.alert(t('common.error'), message, [{ text: t('common.ok') }]);
+            return false;
         } catch (e) {
             console.error(e);
             Modal.alert(t('common.error'), t('modals.failedToConnectTerminal'), [{ text: t('common.ok') }]);

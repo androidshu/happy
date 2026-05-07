@@ -239,6 +239,7 @@ export class ApiSessionClient extends EventEmitter {
     private pendingOutbox: Array<{ content: string; localId: string }> = [];
     private readonly sendSync: InvalidateSync;
     private readonly receiveSync: InvalidateSync;
+    private lastKeepAliveState: { thinking: boolean; mode: 'local' | 'remote' } | null = null;
 
     constructor(token: string, session: Session) {
         super()
@@ -291,6 +292,9 @@ export class ApiSessionClient extends EventEmitter {
                 this.reconnectInterval = null;
             }
             this.rpcHandlerManager.onSocketConnect(this.socket);
+            if (this.lastKeepAliveState) {
+                this.emitKeepAlive(this.lastKeepAliveState, false);
+            }
             this.receiveSync.invalidate();
         })
 
@@ -380,6 +384,10 @@ export class ApiSessionClient extends EventEmitter {
         //
 
         this.socket.connect();
+    }
+
+    getAgentState(): AgentState | null {
+        return this.agentState;
     }
 
     onUserMessage(callback: (data: UserMessage) => void) {
@@ -865,15 +873,30 @@ export class ApiSessionClient extends EventEmitter {
      * Send a ping message to keep the connection alive
      */
     keepAlive(thinking: boolean, mode: 'local' | 'remote') {
+        this.lastKeepAliveState = { thinking, mode };
         if (process.env.DEBUG) { // too verbose for production
             logger.debug(`[API] Sending keep alive message: ${thinking}`);
         }
-        this.socket.volatile.emit('session-alive', {
+        this.emitKeepAlive({ thinking, mode }, true);
+    }
+
+    private emitKeepAlive(
+        state: { thinking: boolean; mode: 'local' | 'remote' },
+        useVolatile: boolean,
+    ) {
+        const payload = {
             sid: this.sessionId,
             time: Date.now(),
-            thinking,
-            mode
-        });
+            thinking: state.thinking,
+            mode: state.mode
+        };
+
+        if (useVolatile) {
+            this.socket.volatile.emit('session-alive', payload);
+            return;
+        }
+
+        this.socket.emit('session-alive', payload);
     }
 
     /**

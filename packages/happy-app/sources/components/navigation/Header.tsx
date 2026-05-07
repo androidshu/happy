@@ -394,7 +394,7 @@ const NavigationHeaderComponent: React.FC<NavigationHeaderComponentProps> = Reac
 });
 
 // Export a render function for React Navigation
-export const createHeader = (props: NativeStackHeaderProps) => {
+export const createHeader = (props: any): React.ReactNode => {
     if (props.options.headerShown === false) {
         return null;
     }

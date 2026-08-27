@@ -96,12 +96,11 @@ flat 会话列表一度丢失状态标识，用户无法区分闲置 / 运行中
 
 ## 4. 未读状态必须跨设备同步
 
-**状态：待实现**
+**状态：已实现**
 
 ### 背景
 
-当前 `unreadSessionIds` 是 app 内纯内存状态（`sync/storage.ts`，注释自承
-"memory-only"）：
+原 `unreadSessionIds` 是 app 内纯内存状态（`sync/storage.ts`）：
 
 - 手机点开会话消除绿点，Mac 上绿点仍在（反之亦然）；
 - app 重启后所有绿点丢失；
@@ -113,22 +112,38 @@ flat 会话列表一度丢失状态标识，用户无法区分闲置 / 运行中
 - 未读状态重启不丢。
 - 弱网 / 离线时本地先生效，恢复后同步（乐观更新 + 版本冲突重试）。
 
-### 预定方案（已调研，服务端零改动）
+### 实现（服务端零改动，复用账户级 KV）
 
-- 复用服务端账户级 KV 存储（`userKVStore` 表，`/v1/kv` 接口）：
-  带版本号乐观锁，值 base64（客户端自行加密，符合 E2E 设计），
-  变更通过 `kv-batch-update` 实时事件广播给同账号所有设备。
-- app 侧已有封装：`sources/sync/apiKv.ts`（kvGet / kvBulkGet / kvMutate /
-  kvGetByPrefix），事件 schema：`ApiKvBatchUpdateSchema`（apiTypes.ts），
-  但目前全未接线（sync.ts 不处理该事件）。
-- 设计：key 前缀 `session-read.`；点开会话 → 本地清除 + kvMutate →
-  其它设备收 `kv-batch-update` → 本地清除；启动时 kvGetByPrefix 拉全量
-  恢复未读集合。
-- 工作量集中在：`sync/sync.ts` 事件处理、`sync/storage.ts` 的
-  markSessionRead / 未读产生逻辑、新增 readState 模块。
+- 存储模型：服务端 `userKVStore`，每会话一个 key `session-read.<id>`，
+  **存在即未读、删除即已读**；value 为完成时间戳（ms，base64），用于
+  跨设备竞态时「时间戳决胜」（last write wins）。key 中的 sessionId 服务端
+  本就知道归属，value 只是时间戳，无新增泄露，故不加密。
+- `sources/sync/readStateSync.ts`（新模块）：
+  - `initReadStateSync(credentials)`：sync 初始化时注入凭证；
+  - `fetchAndApplyUnreadStates()`：启动时 `kvGetByPrefix` 拉全量合并
+    （tombstone 过滤 + 失效标记后台补删）；
+  - `pushSessionUnread / pushSessionRead`：本地产生/消除时写 KV，version
+    乐观锁，409 冲突自动重查重试（最多 3 次）；
+  - `applyRemoteReadStateChanges(changes)`：处理 `kv-batch-update` 实时事件。
+- `sources/sync/storage.ts`：
+  - `configureReadStateHooks`：storage 不反向依赖网络层，由 sync 注入回调；
+  - 未读产生（applySessions 活跃→闲置）、`markSessionRead`、
+    `markSessionUnread`、`setCurrentViewingSession` 均触发对应 hook；
+  - `applyRemoteUnreadStates({add, remove})`：应用远端变化；若会话正被
+    本端查看，则不加未读并回推已读，让各端收敛；远端应用绝不触发 hook
+    （避免回声回环）。
+- `sources/sync/persistence.ts`：`session-read-tombstones-v1`（MMKV）——
+  已读墓碑（sessionId→readAt）。删除请求失败（离线）时防止下次全量拉取
+  「已读复活」；新完成时间晚于墓碑时墓碑自动失效。
+- `sources/sync/sync.ts`：`#init()` 注入凭证与 hooks 并启动全量拉取；
+  `kv-batch-update` 事件分发到 `applyRemoteReadStateChanges`。
+- 测试：`sources/sync/readStateSync.test.ts`（11 例：全量合并、墓碑决胜、
+  事件增删、冲突重试等）。
 
 ## 变更记录
 
 - 2026-08-27：建立本文件。条目 1（扫码回退）、2（状态指示）、3（字典序
-  固定）已在真机（HappyD debug / HappyR release）与桌面端验证完成；
-  条目 4（未读跨设备同步）完成方案调研，待实现。
+  固定）已在真机（HappyD debug / HappyR release）与桌面端验证完成。
+- 2026-08-27：条目 4（未读跨设备同步）实现完成——复用账户 KV 存储
+  （`session-read.` 前缀 key + `kv-batch-update` 实时事件 + MMKV 已读墓碑），
+  服务端零改动；单测 11 例通过。

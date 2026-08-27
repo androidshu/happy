@@ -144,6 +144,13 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="scan"
+                options={{
+                    // Full-screen camera scanner — header would cover the viewfinder
+                    headerShown: false,
+                }}
+            />
+            <Stack.Screen
                 name="settings/appearance"
                 options={{
                     headerTitle: t('settings.appearance'),

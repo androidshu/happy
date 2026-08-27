@@ -526,6 +526,7 @@ export const ru: TranslationStructure = {
             detailContext: ({ used, total }: { used: string; total: string }) => `Контекст ${used} / ${total}`,
             percentContext: ({ percent }: { percent: number }) => `${percent}% контекста`,
             percentWeek: ({ percent }: { percent: number }) => `${percent}% за неделю`,
+            remaining: ({ percent }: { percent: number }) => `Осталось ${percent}%`,
         },
         usagePopup: {
             session: 'Сессия',
@@ -851,6 +852,16 @@ export const ru: TranslationStructure = {
         restoreWithSecretKey: 'Восстановить секретным ключом',
         whatsNew: 'Что нового',
         friends: 'Друзья',
+    },
+
+    scanner: {
+        // In-app QR scanner screen (fallback when the system code scanner cannot start)
+        title: 'Сканировать QR-код',
+        instructions: 'Наведите камеру на QR-код',
+        notHappyQr: 'Это не QR-код Happy',
+        grantCameraAccess: 'Разрешить доступ к камере',
+        cameraAccessDenied: 'Для сканирования QR-кодов необходим доступ к камере. Включите его в настройках.',
+        openSettings: 'Открыть настройки',
     },
 
     welcome: {

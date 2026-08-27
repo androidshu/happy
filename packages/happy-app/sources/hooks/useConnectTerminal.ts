@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
 import { CameraView } from 'expo-camera';
+import { useRouter } from 'expo-router';
 import { useAuth } from '@/auth/AuthContext';
 import { decodeBase64 } from '@/encryption/base64';
 import { encryptBox } from '@/encryption/libsodium';
@@ -10,6 +11,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { sync } from '@/sync/sync';
 import { storage } from '@/sync/storage';
+import { launchSystemScannerOrFallback } from '@/utils/qrScanner';
 
 interface UseConnectTerminalOptions {
     onSuccess?: () => void;
@@ -23,6 +25,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function useConnectTerminal(options?: UseConnectTerminalOptions) {
     const auth = useAuth();
+    const router = useRouter();
     const [isLoading, setIsLoading] = React.useState(false);
     const checkScannerPermissions = useCheckScannerPermissions();
 
@@ -102,14 +105,13 @@ export function useConnectTerminal(options?: UseConnectTerminalOptions) {
 
     const connectTerminal = React.useCallback(async () => {
         if (await checkScannerPermissions()) {
-            // Use camera scanner
-            CameraView.launchScanner({
-                barcodeTypes: ['qr']
-            });
+            // Use camera scanner, falling back to the in-app scanner screen when
+            // the system one cannot start
+            await launchSystemScannerOrFallback(router);
         } else {
             Modal.alert(t('common.error'), t('modals.cameraPermissionsRequiredToConnectTerminal'), [{ text: t('common.ok') }]);
         }
-    }, [checkScannerPermissions]);
+    }, [checkScannerPermissions, router]);
 
     const connectWithUrl = React.useCallback(async (url: string) => {
         return await processAuthUrl(url);

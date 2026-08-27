@@ -510,6 +510,7 @@ export const zhHant: TranslationStructure = {
             detailContext: ({ used, total }: { used: string; total: string }) => `上下文 ${used} / ${total}`,
             percentContext: ({ percent }: { percent: number }) => `上下文 ${percent}%`,
             percentWeek: ({ percent }: { percent: number }) => `本週 ${percent}%`,
+            remaining: ({ percent }: { percent: number }) => `剩餘 ${percent}%`,
         },
         usagePopup: {
             session: '會話',
@@ -847,6 +848,16 @@ export const zhHant: TranslationStructure = {
         restoreWithSecretKey: '透過金鑰恢復',
         whatsNew: "更新日誌",
         friends: '好友',
+    },
+
+    scanner: {
+        // In-app QR scanner screen (fallback when the system code scanner cannot start)
+        title: '掃描二維碼',
+        instructions: '將相機對準二維碼',
+        notHappyQr: '不是 Happy 二維碼',
+        grantCameraAccess: '授權使用相機',
+        cameraAccessDenied: '掃描二維碼需要相機權限，請在系統設定中開啟。',
+        openSettings: '開啟設定',
     },
 
     welcome: {

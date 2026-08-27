@@ -511,6 +511,7 @@ export const ja: TranslationStructure = {
             detailContext: ({ used, total }: { used: string; total: string }) => `コンテキスト ${used} / ${total}`,
             percentContext: ({ percent }: { percent: number }) => `コンテキスト ${percent}%`,
             percentWeek: ({ percent }: { percent: number }) => `週 ${percent}%`,
+            remaining: ({ percent }: { percent: number }) => `残り ${percent}%`,
         },
         usagePopup: {
             session: 'セッション',
@@ -848,6 +849,16 @@ export const ja: TranslationStructure = {
         restoreWithSecretKey: 'シークレットキーで復元',
         whatsNew: "新機能",
         friends: '友達',
+    },
+
+    scanner: {
+        // In-app QR scanner screen (fallback when the system code scanner cannot start)
+        title: 'QRコードをスキャン',
+        instructions: 'カメラをQRコードに向けてください',
+        notHappyQr: 'HappyのQRコードではありません',
+        grantCameraAccess: 'カメラへのアクセスを許可',
+        cameraAccessDenied: 'QRコードのスキャンにはカメラへのアクセスが必要です。設定で有効にしてください。',
+        openSettings: '設定を開く',
     },
 
     welcome: {

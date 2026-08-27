@@ -534,6 +534,7 @@ export const en = {
             detailContext: ({ used, total }: { used: string; total: string }) => `${used} / ${total} context`,
             percentContext: ({ percent }: { percent: number }) => `${percent}% context`,
             percentWeek: ({ percent }: { percent: number }) => `${percent}% week`,
+            remaining: ({ percent }: { percent: number }) => `${percent}% left`,
         },
         usagePopup: {
             session: 'Session',
@@ -873,6 +874,16 @@ export const en = {
         restoreWithSecretKey: 'Restore with Secret Key',
         whatsNew: "What's New",
         friends: 'Friends',
+    },
+
+    scanner: {
+        // In-app QR scanner screen (fallback when the system code scanner cannot start)
+        title: 'Scan QR Code',
+        instructions: 'Point your camera at the QR code',
+        notHappyQr: 'Not a Happy QR code',
+        grantCameraAccess: 'Grant Camera Access',
+        cameraAccessDenied: 'Camera access is required to scan QR codes. Enable it in Settings.',
+        openSettings: 'Open Settings',
     },
 
     welcome: {

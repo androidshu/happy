@@ -510,6 +510,7 @@ export const ca: TranslationStructure = {
             detailContext: ({ used, total }: { used: string; total: string }) => `${used} / ${total} de context`,
             percentContext: ({ percent }: { percent: number }) => `${percent}% context`,
             percentWeek: ({ percent }: { percent: number }) => `${percent}% setmana`,
+            remaining: ({ percent }: { percent: number }) => `${percent}% restant`,
         },
         usagePopup: {
             session: 'Sessió',
@@ -847,6 +848,16 @@ export const ca: TranslationStructure = {
         restoreWithSecretKey: 'Restaura amb clau secreta',
         whatsNew: 'Novetats',
         friends: 'Amics',
+    },
+
+    scanner: {
+        // In-app QR scanner screen (fallback when the system code scanner cannot start)
+        title: 'Escaneja codi QR',
+        instructions: 'Apunta la càmera al codi QR',
+        notHappyQr: 'No és un codi QR de Happy',
+        grantCameraAccess: "Permet l'accés a la càmera",
+        cameraAccessDenied: "Cal accés a la càmera per escanejar codis QR. Activa-ho a Ajustos.",
+        openSettings: 'Obre Ajustos',
     },
 
     welcome: {

@@ -511,6 +511,7 @@ export const zhHans: TranslationStructure = {
             detailContext: ({ used, total }: { used: string; total: string }) => `上下文 ${used} / ${total}`,
             percentContext: ({ percent }: { percent: number }) => `上下文 ${percent}%`,
             percentWeek: ({ percent }: { percent: number }) => `本周 ${percent}%`,
+            remaining: ({ percent }: { percent: number }) => `剩余 ${percent}%`,
         },
         usagePopup: {
             session: '会话',
@@ -848,6 +849,16 @@ export const zhHans: TranslationStructure = {
         restoreWithSecretKey: '通过密钥恢复',
         whatsNew: "更新日志",
         friends: '好友',
+    },
+
+    scanner: {
+        // In-app QR scanner screen (fallback when the system code scanner cannot start)
+        title: '扫描二维码',
+        instructions: '将相机对准二维码',
+        notHappyQr: '不是 Happy 二维码',
+        grantCameraAccess: '授权使用相机',
+        cameraAccessDenied: '扫描二维码需要相机权限，请在系统设置中开启。',
+        openSettings: '打开设置',
     },
 
     welcome: {

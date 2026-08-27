@@ -509,6 +509,7 @@ export const pt: TranslationStructure = {
             detailContext: ({ used, total }: { used: string; total: string }) => `${used} / ${total} de contexto`,
             percentContext: ({ percent }: { percent: number }) => `${percent}% contexto`,
             percentWeek: ({ percent }: { percent: number }) => `${percent}% semana`,
+            remaining: ({ percent }: { percent: number }) => `${percent}% restante`,
         },
         usagePopup: {
             session: 'Sessão',
@@ -846,6 +847,16 @@ export const pt: TranslationStructure = {
         restoreWithSecretKey: 'Restaurar com chave secreta',
         whatsNew: 'Novidades',
         friends: 'Amigos',
+    },
+
+    scanner: {
+        // In-app QR scanner screen (fallback when the system code scanner cannot start)
+        title: 'Digitalizar código QR',
+        instructions: 'Aponte a câmera para o código QR',
+        notHappyQr: 'Não é um código QR do Happy',
+        grantCameraAccess: 'Permitir acesso à câmera',
+        cameraAccessDenied: 'É necessário acesso à câmera para digitalizar códigos QR. Ative-o nos Ajustes.',
+        openSettings: 'Abrir Ajustes',
     },
 
     welcome: {

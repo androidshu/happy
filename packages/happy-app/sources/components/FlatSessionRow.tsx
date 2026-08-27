@@ -22,13 +22,15 @@ import { RigGitLineChanges } from './RigGitLineChanges';
 import { ShimmerText } from './ShimmerText';
 import { resolveFlatSessionRowPresentation } from '@/utils/flatSessionRowPresentation';
 
-// Roughly three quarters of the row, the proportion a chat list uses: the row
-// is 10 + 61 + 10, so 60 leaves an even 10 either side of the avatar.
-const AVATAR_SIZE = 60;
+// Small on purpose: the generated avatar is decoration, not identity — most
+// sessions have no custom project art, so a big abstract pattern would dominate
+// rows while saying nothing. This size keeps the row anchored without stealing
+// attention from the title and status, and still reads custom project art fine.
+const AVATAR_SIZE = 36;
 const ROW_PADDING_LEFT = 16;
-const AVATAR_GAP = 12;
-const TOP_RIGHT_DOT_SIZE = 20;
+const AVATAR_GAP = 10;
 const TOP_RIGHT_SLOT_WIDTH = 56;
+const STATUS_DOT_SIZE = 8;
 const UNREAD_DOT_CLEAR_GRACE_MS = 350;
 
 /**
@@ -90,13 +92,21 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
         hasUnread: showUnreadDot,
         faded,
     });
-    const topRightAccessibilityLabel = presentation.topRight.type === 'dot'
-        ? session.state === 'input_required'
+    // The status dot speaks the old project-card language — running breathes
+    // blue, blocked breathes orange, an unread result settles green and is
+    // cancelled by opening the session — shrunk to the metadata line so it
+    // never competes with the title.
+    const statusDotLabel = presentation.statusDot.type === 'none'
+        ? undefined
+        : session.state === 'input_required'
             ? t('status.inputRequired')
             : session.state === 'permission_required'
                 ? t('status.permissionRequired')
-                : t('status.unread')
-        : undefined;
+                : session.state === 'thinking'
+                    ? t('status.activeNow')
+                    : session.state === 'disconnected'
+                        ? t('status.disconnected')
+                        : t('status.unread');
 
     // The same `lastActivityAt` the flat list sorts on, so the stamps run in
     // the order the rows do.
@@ -180,22 +190,10 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
                         )}
                     </View>
                     <SessionShortcutHintBadge sessionId={session.id} style={styles.shortcutBadge} />
-                    <View
-                        style={styles.topRightStatus}
-                        accessible={topRightAccessibilityLabel !== undefined}
-                        accessibilityRole={topRightAccessibilityLabel ? 'text' : undefined}
-                        accessibilityLabel={topRightAccessibilityLabel}
-                    >
-                        {presentation.topRight.type === 'dot' ? (
-                            <StatusDot
-                                color={presentation.topRight.color}
-                                size={TOP_RIGHT_DOT_SIZE}
-                            />
-                        ) : (
-                            <Text style={styles.timestamp} numberOfLines={1}>
-                                {timestamp}
-                            </Text>
-                        )}
+                    <View style={styles.topRightStatus}>
+                        <Text style={styles.timestamp} numberOfLines={1}>
+                            {timestamp}
+                        </Text>
                     </View>
                 </View>
 
@@ -219,6 +217,20 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
                         )}
                     </View>
                     <View style={styles.workspaceMeta}>
+                        {presentation.statusDot.type === 'dot' && (
+                            <View
+                                style={styles.statusDot}
+                                accessible
+                                accessibilityRole="text"
+                                accessibilityLabel={statusDotLabel}
+                            >
+                                <StatusDot
+                                    color={presentation.statusDot.color}
+                                    isPulsing={presentation.statusDot.pulsing}
+                                    size={STATUS_DOT_SIZE}
+                                />
+                            </View>
+                        )}
                         {session.hasDraft && (
                             <Ionicons
                                 name="create-outline"
@@ -332,10 +344,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexShrink: 0,
         marginLeft: 8,
     },
-    // The dot and time share a Telegram-like right column, so changing status
-    // never makes the title jump horizontally. It is only as wide as the
-    // longest timestamp; the dot occupies that same slot instead of reserving
-    // a second lane.
+    // The timestamp keeps a Telegram-like right column to itself, so changing
+    // status never makes the title jump horizontally.
     topRightStatus: {
         width: TOP_RIGHT_SLOT_WIDTH,
         height: 22,
@@ -383,6 +393,13 @@ const stylesheet = StyleSheet.create((theme) => ({
         alignItems: 'center',
         flexShrink: 0,
         marginLeft: 'auto',
+        gap: 6,
+    },
+    // First thing on the metadata line: under the timestamp, left of the draft
+    // icon. Small on purpose — it is a glanceable state, not a banner.
+    statusDot: {
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     // Sits on the row itself rather than the text column, so centring the
     // avatar cannot drag it up off the row's bottom edge. Starts where the text

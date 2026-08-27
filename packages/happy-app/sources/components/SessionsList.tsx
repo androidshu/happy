@@ -9,7 +9,7 @@ import { Avatar } from './Avatar';
 import { ActiveSessionsGroupCompact } from './ActiveSessionsGroupCompact';
 import { ProjectGroup } from './ProjectGroup';
 import { FlatSessionRow, flatListBackgroundColor } from './FlatSessionRow';
-import { buildFlatSessionRows, toFlatSessionRow, type FlatSessionRowData } from '@/utils/flatSessionList';
+import { buildFlatSessionRows, groupFlatSessionRowsByMachine, toFlatSessionRow, type FlatSessionRowData } from '@/utils/flatSessionList';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHasArchivedSessions, useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { Typography } from '@/constants/Typography';
@@ -27,11 +27,20 @@ import { t } from '@/text';
 import { SessionShortcutHintBadge } from './ShortcutHints';
 import { ProviderIcon } from './ProviderIcon';
 import { buildSessionProjectDisplayGroups } from '@/utils/sessionDisplayOrder';
+import { SessionFlavorBadge } from './SessionFlavorBadge';
 
 type SessionListDisplayItem = SessionListViewItem | {
     type: 'machine-header';
     machineId: string | null;
     machineName: string;
+} | {
+    // A section heading in the flat list: one per computer, with its online
+    // state spelled out so a glance answers "is that box up?".
+    type: 'machine-section';
+    machineId: string | null;
+    machineName: string;
+    online: boolean;
+    first: boolean;
 } | {
     type: 'archive-toggle';
     hidden: boolean;
@@ -127,6 +136,35 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         marginRight: 4,
         ...Typography.default('regular'),
+    },
+    machineSection: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 16,
+        paddingTop: 20,
+        paddingBottom: 6,
+    },
+    // The first heading is the top of the page, not a divider inside it, so it
+    // does not need the breathing room the later ones use to separate sections.
+    machineSectionFirst: {
+        paddingTop: 8,
+    },
+    machineSectionDot: {
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: theme.colors.divider,
+    },
+    machineSectionDotOnline: {
+        backgroundColor: '#34C759',
+    },
+    machineSectionText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: theme.colors.groupped.sectionTitle,
+        letterSpacing: 0.1,
+        ...Typography.default('semiBold'),
     },
     projectGroup: {
         paddingHorizontal: 16,
@@ -225,6 +263,9 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexShrink: 1,
         ...Typography.default(),
     },
+    sessionFlavorBadge: {
+        marginRight: 8,
+    },
     statusRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -309,6 +350,37 @@ const MachineHeader = React.memo(({ machineId, machineName }: {
     );
 });
 
+const MachineSectionHeader = React.memo(({ machineId, machineName, online, first }: {
+    machineId: string | null;
+    machineName: string;
+    online: boolean;
+    first: boolean;
+}) => {
+    const styles = stylesheet;
+    const router = useRouter();
+
+    const handlePress = React.useCallback(() => {
+        if (machineId) {
+            router.navigate(`/machine/${machineId}` as any);
+        }
+    }, [machineId, router]);
+
+    return (
+        <Pressable
+            onPress={handlePress}
+            disabled={!machineId}
+            accessibilityRole={machineId ? 'button' : undefined}
+            style={[styles.machineSection, first && styles.machineSectionFirst]}
+            hitSlop={{ top: 8, bottom: 8 }}
+        >
+            <View style={[styles.machineSectionDot, online && styles.machineSectionDotOnline]} />
+            <Text style={styles.machineSectionText} numberOfLines={1}>
+                {machineName}
+            </Text>
+        </Pressable>
+    );
+});
+
 export function SessionsList({
     topContentInset = 0,
     scrollIndicatorTopInset = 0,
@@ -331,7 +403,10 @@ export function SessionsList({
     // is offered back through the home filter menu for people who organized
     // around it.
     const flatSessionList = useSetting('sessionListGrouping') !== 'project';
-    const machines = useAllMachines();
+    // All machines, offline ones included: a section heading is most useful
+    // exactly when it can say which computers are down, and the offline names
+    // would otherwise fall back to raw machine ids.
+    const machines = useAllMachines({ includeOffline: true });
     const pathname = usePathname();
     const isTablet = useIsTablet();
     // Selection is derived once from pathname so the data array stays stable
@@ -371,11 +446,27 @@ export function SessionsList({
             // A chat list should always float the thing the user just replied
             // to, so the canonical layout is ordered by recent activity.
             const flatRows = buildFlatSessionRows(groupedRows, { sortByActivity: true });
-            const flatItems = flatRows.map<SessionListDisplayItem>((row, index) => ({
-                type: 'flat-session',
-                row,
-                last: index === flatRows.length - 1,
-            }));
+            // The flat list keeps one section per computer so work on different
+            // machines reads as blocks rather than interleaving invisibly. A
+            // single computer needs no divider between itself and nothing, so
+            // its heading is dropped and the list stays a plain chat column.
+            const machineItems = groupFlatSessionRowsByMachine(flatRows, machines, t('status.unknown'));
+            const showMachineSections = machineItems
+                .filter((item): item is Extract<typeof item, { type: 'machine-header' }> => item.type === 'machine-header')
+                .length > 1;
+            const flatItems = machineItems
+                .filter((item) => showMachineSections || item.type !== 'machine-header')
+                .map<SessionListDisplayItem>((item) => (
+                    item.type === 'machine-header'
+                        ? {
+                            type: 'machine-section',
+                            machineId: item.machineId,
+                            machineName: item.machineName,
+                            online: item.online,
+                            first: item.first,
+                        }
+                        : { type: 'flat-session', row: item.row, last: item.last }
+                ));
             // The archive is the same column, only retired: its rows get the
             // flat row too rather than reverting to inset cards. The toggle
             // joins the date headings in their grey band, so opening the
@@ -430,6 +521,7 @@ export function SessionsList({
     const keyExtractor = React.useCallback((item: SessionListDisplayItem, index: number) => {
         switch (item.type) {
             case 'machine-header': return `machine-header-${JSON.stringify(item.machineId)}`;
+            case 'machine-section': return `machine-section-${JSON.stringify(item.machineId)}`;
             case 'archive-toggle': return 'archive-toggle';
             case 'flat-session': return `flat-session-${item.row.session.id}`;
             case 'header': return `header-${item.title}-${index}`;
@@ -448,6 +540,16 @@ export function SessionsList({
                     <MachineHeader
                         machineId={item.machineId}
                         machineName={item.machineName}
+                    />
+                );
+
+            case 'machine-section':
+                return (
+                    <MachineSectionHeader
+                        machineId={item.machineId}
+                        machineName={item.machineName}
+                        online={item.online}
+                        first={item.first}
                     />
                 );
 
@@ -688,6 +790,18 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
             </View>
             <View style={styles.sessionContent}>
                 <View style={styles.sessionTitleRow}>
+                    {session.state === 'waiting' && session.hasDraft ? (
+                        <Ionicons
+                            name="create-outline"
+                            size={14}
+                            style={[styles.draftIconOverlay, { marginRight: 8 }]}
+                        />
+                    ) : (
+                        <View style={[styles.statusDotContainer, { marginRight: 8 }]}>
+                            <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />
+                        </View>
+                    )}
+                    <SessionFlavorBadge flavor={session.flavor} style={styles.sessionFlavorBadge} />
                     <Text style={[
                         styles.sessionTitle,
                         status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected

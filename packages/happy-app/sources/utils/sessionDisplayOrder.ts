@@ -27,6 +27,16 @@ export interface SessionProjectDisplayMachineGroup {
     projects: SessionProjectListItem[];
 }
 
+/**
+ * Plain code-point order, not `localeCompare`. The machine and project order
+ * must come out identical on every device and never reshuffle while the list
+ * is in use, and the system locale — which differs between phone and desktop —
+ * would sort the same names differently.
+ */
+export function compareInDictionaryOrder(a: string, b: string): number {
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+
 export function formatSessionDisplayPath(path: string, homeDir?: string): string {
     if (!homeDir) {
         return path;
@@ -83,7 +93,7 @@ export function buildActiveSessionDisplayGroups(
 
     return Array.from(byMachine.values()).sort((a, b) => (
         Number(a.machineId === unknownText) - Number(b.machineId === unknownText)
-        || a.machineName.localeCompare(b.machineName)
+        || compareInDictionaryOrder(a.machineName, b.machineName)
     ));
 }
 
@@ -117,14 +127,14 @@ export function buildSessionProjectDisplayGroups(
 
     byMachine.forEach((group) => {
         group.projects.sort((a, b) => (
-            a.project.name.localeCompare(b.project.name)
-            || a.project.id.localeCompare(b.project.id)
+            compareInDictionaryOrder(a.project.name, b.project.name)
+            || compareInDictionaryOrder(a.project.id, b.project.id)
         ));
     });
 
     return Array.from(byMachine.values()).sort((a, b) => (
         Number(a.machineId === null) - Number(b.machineId === null)
-        || a.machineName.localeCompare(b.machineName)
+        || compareInDictionaryOrder(a.machineName, b.machineName)
     ));
 }
 
@@ -152,7 +162,7 @@ export function getSessionShortcutIdsInDisplayOrder(
             const machineGroups = buildActiveSessionDisplayGroups(item.sessions, machines, unknownText);
             machineGroups.forEach((machineGroup) => {
                 Array.from(machineGroup.projects.values())
-                    .sort((a, b) => a.displayPath.localeCompare(b.displayPath))
+                    .sort((a, b) => compareInDictionaryOrder(a.displayPath, b.displayPath))
                     .forEach((projectGroup) => {
                         projectGroup.sessions.forEach((session) => sessionIds.push(session.id));
                     });

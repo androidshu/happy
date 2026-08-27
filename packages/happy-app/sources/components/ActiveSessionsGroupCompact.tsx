@@ -22,6 +22,7 @@ import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useRouter } from 'expo-router';
 import { SessionShortcutHintBadge } from './ShortcutHints';
 import { buildActiveSessionDisplayGroups } from '@/utils/sessionDisplayOrder';
+import { SessionFlavorBadge } from './SessionFlavorBadge';
 
 const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isPulsing: boolean; isConnected: boolean }> = {
     disconnected: { color: '#999', dotColor: '#999', isPulsing: false, isConnected: false },
@@ -269,6 +270,32 @@ export const CompactSessionRow = React.memo(({ session, selected, showBorder }: 
         onLongPress: showActionAlert,
     };
 
+    const renderLeadingIndicator = () => {
+        let indicator: React.ReactNode = null;
+
+        if (session.hasUnread) {
+            indicator = <StatusDot color={status.dotColor} isPulsing={false} />;
+        } else if (session.state === 'waiting' && session.hasDraft) {
+            indicator = (
+                <Ionicons
+                    name="create-outline"
+                    size={14}
+                    color={theme.colors.textSecondary}
+                />
+            );
+        } else if (session.state === 'permission_required' || session.state === 'thinking') {
+            indicator = <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />;
+        } else if (session.state === 'waiting') {
+            indicator = <StatusDot color={status.dotColor} isPulsing={false} />;
+        }
+
+        return (
+            <View style={styles.leadingIndicatorSlot}>
+                {indicator}
+            </View>
+        );
+    };
+
     const renderTrailingIndicator = () => {
         let indicator: React.ReactNode = null;
 
@@ -309,6 +336,9 @@ export const CompactSessionRow = React.memo(({ session, selected, showBorder }: 
         >
             <View style={styles.sessionContent}>
                 <View style={styles.sessionTitleRow}>
+                    {renderLeadingIndicator()}
+
+                    <SessionFlavorBadge flavor={session.flavor} compact style={styles.sessionFlavorBadge} />
                     <Text
                         style={[
                             styles.sessionTitle,
@@ -504,6 +534,9 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexShrink: 0,
         marginLeft: 8,
     },
+    sessionFlavorBadge: {
+        marginRight: 8,
+    },
     sessionTitleConnected: {
         color: theme.colors.text,
     },
@@ -512,6 +545,13 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     // 18 wide so the dot's center lines up with the center of the project
     // header's "+" button above the card, on both platform paddings.
+    leadingIndicatorSlot: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 16,
+        height: 16,
+        marginRight: 8,
+    },
     trailingIndicatorSlot: {
         alignItems: 'center',
         justifyContent: 'center',

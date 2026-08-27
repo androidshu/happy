@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFlatSessionRows } from './flatSessionList';
+import { buildFlatSessionRows, groupFlatSessionRowsByMachine, type FlatSessionRowData } from './flatSessionList';
 import type { SessionListViewItem, SessionRowData } from '@/sync/storage';
 
 function row(overrides: Partial<SessionRowData> & { id: string }): SessionRowData {
@@ -54,6 +54,10 @@ function project(
             activeCount: 0,
         },
     };
+}
+
+function flatRow(session: SessionRowData): FlatSessionRowData {
+    return { session, projectName: 'proj', workspaceName: null };
 }
 
 describe('buildFlatSessionRows', () => {
@@ -131,5 +135,103 @@ describe('buildFlatSessionRows', () => {
         ], { sortByActivity: true });
 
         expect(rows.map((r) => r.session.id)).toEqual(['live']);
+    });
+});
+
+describe('groupFlatSessionRowsByMachine', () => {
+    const machines = [
+        { id: 'mac-1', active: true, metadata: { displayName: 'MacBook', host: 'mac.local' } },
+        { id: 'win-1', active: false, metadata: { displayName: null, host: 'win.local' } },
+    ];
+
+    it('orders sections by machine name, not by recent activity', () => {
+        // The Windows row is the most recently touched, but sections keep the
+        // fixed dictionary order instead of jumping to whoever was last active.
+        const rows = [
+            flatRow(row({ id: 'b', machineId: 'win-1', lastActivityAt: 30 })),
+            flatRow(row({ id: 'a', machineId: 'mac-1', lastActivityAt: 20 })),
+            flatRow(row({ id: 'c', machineId: 'mac-1', lastActivityAt: 10 })),
+        ];
+
+        const items = groupFlatSessionRowsByMachine(rows, machines, 'Unknown');
+
+        expect(items.map((item) => item.type === 'machine-header' ? item.machineName : item.row.session.id))
+            .toEqual(['MacBook', 'a', 'c', 'win.local', 'b']);
+    });
+
+    it('prefers the displayName and falls back to host, then the raw id', () => {
+        const items = groupFlatSessionRowsByMachine(
+            [flatRow(row({ id: 'a', machineId: 'mac-1' }))], machines, 'Unknown');
+        expect(items[0]).toMatchObject({ type: 'machine-header', machineName: 'MacBook' });
+
+        const winItems = groupFlatSessionRowsByMachine(
+            [flatRow(row({ id: 'a', machineId: 'win-1' }))], machines, 'Unknown');
+        expect(winItems[0]).toMatchObject({ type: 'machine-header', machineName: 'win.local' });
+
+        const goneItems = groupFlatSessionRowsByMachine(
+            [flatRow(row({ id: 'a', machineId: 'gone-1' }))], machines, 'Unknown');
+        expect(goneItems[0]).toMatchObject({ type: 'machine-header', machineName: 'gone-1' });
+    });
+
+    it('reports each machine online state and trails rows without a machine', () => {
+        const rows = [
+            flatRow(row({ id: 'a', machineId: 'mac-1', lastActivityAt: 30 })),
+            flatRow(row({ id: 'b', machineId: null, lastActivityAt: 20 })),
+            flatRow(row({ id: 'c', machineId: 'win-1', lastActivityAt: 10 })),
+        ];
+
+        const items = groupFlatSessionRowsByMachine(rows, machines, 'Unknown');
+        const headers = items.flatMap((item) => item.type === 'machine-header' ? [item] : []);
+
+        expect(headers.map((header) => [header.machineName, header.online])).toEqual([
+            ['MacBook', true],
+            ['win.local', false],
+            ['<Unknown>', false],
+        ]);
+        // The unknown section is last even though its row sorted in the middle.
+        expect(items.at(-1)).toMatchObject({ type: 'session', row: { session: { id: 'b' } } });
+    });
+
+    it('marks the first heading and the last row of each section', () => {
+        const rows = [
+            flatRow(row({ id: 'a', machineId: 'mac-1', lastActivityAt: 30 })),
+            flatRow(row({ id: 'b', machineId: 'mac-1', lastActivityAt: 20 })),
+            flatRow(row({ id: 'c', machineId: 'win-1', lastActivityAt: 10 })),
+        ];
+
+        const items = groupFlatSessionRowsByMachine(rows, machines, 'Unknown');
+
+        expect(items[0]).toMatchObject({ type: 'machine-header', first: true });
+        expect(items[1]).toMatchObject({ type: 'session', last: false });
+        expect(items[2]).toMatchObject({ type: 'session', last: true });
+        expect(items[3]).toMatchObject({ type: 'machine-header', first: false });
+        expect(items[4]).toMatchObject({ type: 'session', last: true });
+    });
+
+    it('keeps working on the rows buildFlatSessionRows produces', () => {
+        const macProject: SessionListViewItem = {
+            type: 'project',
+            source: 'rig',
+            project: {
+                id: 'p1',
+                name: 'proj',
+                machineId: 'mac-1',
+                workspaces: [{
+                    id: null,
+                    name: null,
+                    sessions: [row({ id: 'a', machineId: 'mac-1', lastActivityAt: 10 })],
+                }],
+            } as any,
+        };
+        const activeItem: SessionListViewItem = {
+            type: 'active-sessions',
+            sessions: [row({ id: 'b', machineId: 'win-1', lastActivityAt: 20 })],
+        };
+
+        const flatRows = buildFlatSessionRows([activeItem, macProject], { sortByActivity: true });
+        const items = groupFlatSessionRowsByMachine(flatRows, machines, 'Unknown');
+
+        expect(items.map((item) => item.type === 'machine-header' ? item.machineName : item.row.session.id))
+            .toEqual(['MacBook', 'a', 'win.local', 'b']);
     });
 });

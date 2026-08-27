@@ -5,7 +5,7 @@ import { notifyUnreadMessage } from '@/sync/webTabTitle';
 import { AuthCredentials } from '@/auth/tokenStorage';
 import { Encryption } from '@/sync/encryption/encryption';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import { storage } from './storage';
+import { configureReadStateHooks, storage } from './storage';
 // Circular at module level (ops.ts imports sync) but safe: both sides only
 // touch each other's exports at runtime, never during module initialization.
 import { sessionSetAgentModes } from './ops';
@@ -30,6 +30,13 @@ import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
 import { applySettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
 import { loadPendingSettings, savePendingSettings } from './persistence';
+import {
+    applyRemoteReadStateChanges,
+    fetchAndApplyUnreadStates,
+    initReadStateSync,
+    pushSessionRead,
+    pushSessionUnread,
+} from './readStateSync';
 import {
     initializeTracking,
     trackGitHubConnected,
@@ -294,6 +301,15 @@ class Sync {
 
         // Subscribe to updates
         this.subscribeToUpdates();
+
+        // Cross-device unread sync: local reads/finishes are pushed to the
+        // account KV store, remote changes come back via kv-batch-update.
+        initReadStateSync(this.credentials);
+        configureReadStateHooks({
+            onLocalUnread: pushSessionUnread,
+            onLocalRead: pushSessionRead,
+        });
+        void fetchAndApplyUnreadStates();
 
         // Sync initial PostHog opt-out state with stored settings
         if (tracking) {
@@ -2612,6 +2628,10 @@ class Sync {
                 // Deletion also nulls the server-side session link.
                 this.sessionsSync.invalidate();
             }
+        } else if (updateData.body.t === 'kv-batch-update') {
+            // Account-level KV changes — currently only the cross-device
+            // unread markers live there.
+            applyRemoteReadStateChanges(updateData.body.changes);
         } else if (updateData.body.t === 'update-account') {
             const accountUpdate = updateData.body;
             const currentProfile = storage.getState().profile;

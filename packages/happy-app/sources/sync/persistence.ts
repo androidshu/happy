@@ -11,6 +11,7 @@ const REGISTERED_PUSH_TOKEN_KEY = 'registered-push-token-v1';
 const VOICE_SOFT_PAYWALL_SHOWN_KEY = 'voice-soft-paywall-shown';
 const VOICE_ONBOARDING_PROMPT_LOAD_COUNT_KEY = 'voice-onboarding-prompt-load-count';
 const VOICE_MESSAGE_COUNT_KEY = 'voice-message-count';
+const SESSION_READ_TOMBSTONES_KEY = 'session-read-tombstones-v1';
 
 export type NewSessionAgentType = 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy' | 'rig';
 export type NewSessionSessionType = 'simple' | 'worktree';
@@ -96,6 +97,36 @@ export function loadLocalSettings(): LocalSettings {
 
 export function saveLocalSettings(settings: LocalSettings) {
     mmkv.set('local-settings', JSON.stringify(settings));
+}
+
+/**
+ * sessionId -> read-at timestamp (ms) for reads that may not have reached the
+ * server-side KV yet. If a delete loses the race (offline, conflict), the next
+ * full fetch would resurrect the unread marker; the tombstone lets the merge
+ * keep the read instead. Compared against the unread value's own timestamp —
+ * a newer completion always wins over an older read.
+ */
+export function loadSessionReadTombstones(): Record<string, number> {
+    const raw = mmkv.getString(SESSION_READ_TOMBSTONES_KEY);
+    if (!raw) return {};
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return {};
+        const result: Record<string, number> = {};
+        for (const [key, value] of Object.entries(parsed)) {
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                result[key] = value;
+            }
+        }
+        return result;
+    } catch (e) {
+        console.error('Failed to parse session read tombstones', e);
+        return {};
+    }
+}
+
+export function saveSessionReadTombstones(tombstones: Record<string, number>) {
+    mmkv.set(SESSION_READ_TOMBSTONES_KEY, JSON.stringify(tombstones));
 }
 
 export function loadThemePreference(): 'light' | 'dark' | 'adaptive' {

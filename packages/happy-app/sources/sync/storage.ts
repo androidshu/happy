@@ -320,12 +320,28 @@ interface StorageState {
     // Feed methods
     applyFeedItems: (items: FeedItem[]) => void;
     clearFeed: () => void;
-    // Unread session tracking (memory-only)
+    // Unread session tracking (synced across devices via readStateSync)
     unreadSessionIds: Set<string>;
     currentViewingSessionId: string | null;
     markSessionRead: (sessionId: string) => void;
     markSessionUnread: (sessionId: string) => void;
     setCurrentViewingSession: (sessionId: string | null) => void;
+    // Applies unread changes that came from the server (startup fetch or a
+    // realtime kv-batch-update). Never fires the local hooks — that would echo
+    // a remote change back to the server it came from.
+    applyRemoteUnreadStates: (delta: { add: string[]; remove: string[] }) => void;
+}
+
+// Wired by the sync layer (readStateSync) so local unread changes reach the
+// server without storage importing the network stack. Optional on purpose:
+// unit tests and the pre-auth render never configure it.
+let readStateHooks: {
+    onLocalUnread?: (sessionId: string, completedAt: number) => void;
+    onLocalRead?: (sessionId: string) => void;
+} = {};
+
+export function configureReadStateHooks(hooks: typeof readStateHooks): void {
+    readStateHooks = hooks;
 }
 
 // Helper function to build unified list view data from sessions and machines
@@ -692,6 +708,7 @@ export const storage = create<StorageState>()((set, get) => {
                     if (!unreadSessionIds.has(session.id)) {
                         unreadSessionIds = new Set(unreadSessionIds);
                         unreadSessionIds.add(session.id);
+                        readStateHooks.onLocalUnread?.(session.id, Date.now());
                     }
                 }
             });
@@ -1453,6 +1470,7 @@ export const storage = create<StorageState>()((set, get) => {
         })),
         markSessionRead: (sessionId: string) => set((state) => {
             if (!state.unreadSessionIds.has(sessionId)) return state;
+            readStateHooks.onLocalRead?.(sessionId);
             const next = new Set(state.unreadSessionIds);
             next.delete(sessionId);
             return {
@@ -1463,8 +1481,39 @@ export const storage = create<StorageState>()((set, get) => {
         }),
         markSessionUnread: (sessionId: string) => set((state) => {
             if (state.unreadSessionIds.has(sessionId)) return state;
+            readStateHooks.onLocalUnread?.(sessionId, Date.now());
             const next = new Set(state.unreadSessionIds);
             next.add(sessionId);
+            return {
+                ...state,
+                unreadSessionIds: next,
+                sessionListViewData: buildSessionListViewData(state.sessions, next, state.machines, state.projects),
+            };
+        }),
+        applyRemoteUnreadStates: ({ add, remove }) => set((state) => {
+            let next = state.unreadSessionIds;
+            const ensureCopy = () => {
+                if (next === state.unreadSessionIds) next = new Set(state.unreadSessionIds);
+            };
+            for (const sessionId of remove) {
+                if (next.has(sessionId)) {
+                    ensureCopy();
+                    next.delete(sessionId);
+                }
+            }
+            for (const sessionId of add) {
+                // A session the user is looking at right now is read by
+                // definition — tell the server so every device converges.
+                if (sessionId === state.currentViewingSessionId) {
+                    readStateHooks.onLocalRead?.(sessionId);
+                    continue;
+                }
+                if (!next.has(sessionId)) {
+                    ensureCopy();
+                    next.add(sessionId);
+                }
+            }
+            if (next === state.unreadSessionIds) return state;
             return {
                 ...state,
                 unreadSessionIds: next,
@@ -1475,7 +1524,7 @@ export const storage = create<StorageState>()((set, get) => {
             if (state.currentViewingSessionId === sessionId) return state;
             // If switching to a new session, mark it as read
             const next = sessionId && state.unreadSessionIds.has(sessionId)
-                ? (() => { const s = new Set(state.unreadSessionIds); s.delete(sessionId); return s; })()
+                ? (() => { readStateHooks.onLocalRead?.(sessionId); const s = new Set(state.unreadSessionIds); s.delete(sessionId); return s; })()
                 : state.unreadSessionIds;
             return {
                 ...state,

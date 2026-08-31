@@ -65,6 +65,7 @@ import {
     includeConfiguredModel,
     getDefaultModelKey,
     getDefaultPermissionModeKey,
+    resolveNewSessionModelKey,
     type PermissionMode,
     type ModelMode,
     type EffortLevel,
@@ -109,6 +110,7 @@ const agentIcons = {
     openclaw: require('@/assets/images/icon-openclaw.png'),
     gemini: require('@/assets/images/icon-gemini.png'),
     agy: require('@/assets/images/icon-agy.png'),
+    qoder: require('@/assets/images/icon-qoder.png'),
 };
 
 type AgentKey = NewSessionAgentType;
@@ -117,6 +119,7 @@ type AgentKey = NewSessionAgentType;
 const ALL_AGENTS: { key: AgentKey; label: string }[] = [
     { key: 'claude', label: 'claude code' },
     { key: 'codex', label: 'codex' },
+    { key: 'qoder', label: 'qoder' },
     { key: 'agy', label: 'antigravity' },
     { key: 'rig', label: 'happy' },
 ];
@@ -727,7 +730,7 @@ const PromptInput = React.memo(React.forwardRef<MultiTextInputHandle, PromptInpu
 
 function getSessionAgentType(session: Session): NewSessionAgentType {
     const flavor = session.metadata?.flavor;
-    if (flavor === 'codex' || flavor === 'gemini' || flavor === 'openclaw' || flavor === 'claude') {
+    if (flavor === 'codex' || flavor === 'gemini' || flavor === 'openclaw' || flavor === 'claude' || flavor === 'qoder') {
         return flavor;
     }
     return 'claude';
@@ -814,6 +817,7 @@ function NewSessionScreen() {
         isMountedRef.current = false;
     }, []);
     const permissionSelectionTouchedRef = React.useRef(false);
+    const modelSelectionTouchedRef = React.useRef(false);
 
     // Config collapse — auto-collapses when typing, expands when empty
     const [isConfigExpanded, setIsConfigExpanded] = React.useState(true);
@@ -1099,6 +1103,7 @@ function NewSessionScreen() {
 
     React.useEffect(() => {
         permissionSelectionTouchedRef.current = false;
+        modelSelectionTouchedRef.current = false;
     }, [selectedAgent, selectedMachineId]);
 
     // Reset permission index when context changes:
@@ -1144,17 +1149,26 @@ function NewSessionScreen() {
 
     // Reset model index when agent changes — try draft key first, then defaults
     React.useEffect(() => {
-        const draftModelIdx = modelModes.findIndex(m => m.key === draft.modelMode);
-        const defaultModelIdx = modelModes.findIndex(m => m.key === effectiveAgentDefaults.modelMode);
-        const fallbackDefaultModelIdx = modelModes.findIndex(m => m.key === getDefaultModelKey(selectedAgent));
-        setModelIndex(draftModelIdx >= 0
-            ? draftModelIdx
-            : (defaultModelIdx >= 0
-                ? defaultModelIdx
-                : (fallbackDefaultModelIdx >= 0 ? fallbackDefaultModelIdx : 0)));
+        const preferredModelKey = resolveNewSessionModelKey(
+            modelModes,
+            draft.modelMode,
+            effectiveAgentDefaults.modelMode,
+            getDefaultModelKey(selectedAgent, modelModes),
+            modelSelectionTouchedRef.current,
+        );
+        const preferredModelIdx = modelModes.findIndex(m => m.key === preferredModelKey);
+        setModelIndex(preferredModelIdx);
+
+        if (
+            !modelSelectionTouchedRef.current &&
+            preferredModelKey &&
+            preferredModelKey !== draft.modelMode
+        ) {
+            draft.setModelMode(preferredModelKey);
+        }
 
         if (!canPickWorktree) setWorktreeKey('__none__');
-    }, [selectedAgent, modelModes, draft.modelMode, canPickWorktree, effectiveAgentDefaults.modelMode]);
+    }, [selectedAgent, modelModes, draft.modelMode, draft.setModelMode, canPickWorktree, effectiveAgentDefaults.modelMode]);
 
     // Reset effort when model changes
     React.useEffect(() => {
@@ -1242,6 +1256,7 @@ function NewSessionScreen() {
     }, [permissionModes, draft.setPermissionMode]);
 
     const cycleModel = React.useCallback(() => {
+        modelSelectionTouchedRef.current = true;
         setModelIndex(i => {
             const next = (i + 1) % modelModes.length;
             draft.setModelMode(modelModes[next]?.key ?? 'default');
@@ -1398,6 +1413,7 @@ function NewSessionScreen() {
             case 'model': {
                 const next = modelModes.findIndex((mode) => mode.key === key);
                 if (next >= 0) {
+                    modelSelectionTouchedRef.current = true;
                     setModelIndex(next);
                     draft.setModelMode(modelModes[next]?.key ?? 'default');
                 }
@@ -1638,15 +1654,21 @@ function NewSessionScreen() {
                         return;
                     }
 
+                    // Store only per-session overrides through the new
+                    // sessionSetAgentModes API. Matching the effective default
+                    // stays null so future code default changes still apply.
                     const currentEffortKey = currentEffort?.key ?? null;
-                    // Pin the actual launch selection to this session. A
-                    // later settings/default change must not silently rewrite
-                    // an existing session's permission, model, or effort.
                     if (!spawnRigCreation) {
                         sessionSetAgentModes(result.sessionId, {
-                            permissionMode: permissionKey,
-                            modelMode: currentModelKey,
-                            effortLevel: currentEffortKey,
+                            permissionMode: permissionKey === effectiveAgentDefaults.permissionMode
+                                ? null
+                                : permissionKey,
+                            modelMode: currentModelKey === effectiveAgentDefaults.modelMode
+                                ? null
+                                : currentModelKey,
+                            effortLevel: currentEffortKey === effectiveAgentDefaults.effortLevel
+                                ? null
+                                : currentEffortKey,
                         });
                     }
 

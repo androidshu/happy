@@ -29,6 +29,10 @@ let credentials: AuthCredentials | null = null;
 // Server-side version of every key we know about, including deleted ones —
 // kvMutate is version-locked and a blind create (-1) 409s once the key exists.
 const knownVersions = new Map<string, number>();
+// Latest completion already handed to local storage. This makes echoed KV
+// writes idempotent while still letting a second completion refresh content
+// for a session that was already unread.
+const knownCompletedAt = new Map<string, number>();
 
 // In-memory mirror of the persisted tombstones; loaded lazily on first use.
 let tombstones: Record<string, number> | null = null;
@@ -108,11 +112,13 @@ async function mutateWithRetry(key: string, value: string | null): Promise<boole
  * Fire-and-forget from the storage layer — local state is already updated.
  */
 export function pushSessionUnread(sessionId: string, completedAt: number): void {
+    const completionRevision = Math.max(completedAt, (knownCompletedAt.get(sessionId) ?? 0) + 1);
     // A newer completion outdates any local read tombstone for this session.
-    if (completedAt > (getTombstones()[sessionId] ?? 0)) {
+    if (completionRevision > (getTombstones()[sessionId] ?? 0)) {
         clearTombstone(sessionId);
     }
-    void mutateWithRetry(UNREAD_KEY_PREFIX + sessionId, encodeCompletedAt(completedAt));
+    knownCompletedAt.set(sessionId, completionRevision);
+    void mutateWithRetry(UNREAD_KEY_PREFIX + sessionId, encodeCompletedAt(completionRevision));
 }
 
 /**
@@ -152,12 +158,15 @@ export async function fetchAndApplyUnreadStates(): Promise<void> {
         const sessionId = item.key.slice(UNREAD_KEY_PREFIX.length);
         const completedAt = decodeCompletedAt(item.value);
         if (completedAt === null) continue;
+        const previousCompletedAt = knownCompletedAt.get(sessionId) ?? 0;
+        knownCompletedAt.set(sessionId, Math.max(previousCompletedAt, completedAt));
         if ((current[sessionId] ?? 0) >= completedAt) {
             // This device read it after that completion; an earlier delete must
             // have failed. Retry it in the background.
             void mutateWithRetry(item.key, null);
             continue;
         }
+        if (completedAt <= previousCompletedAt) continue;
         unreadSessionIds.push(sessionId);
     }
     storage.getState().applyRemoteUnreadStates({ add: unreadSessionIds, remove: [] });
@@ -188,11 +197,14 @@ export function applyRemoteReadStateChanges(
         }
         const completedAt = decodeCompletedAt(change.value);
         if (completedAt === null) continue;
+        const previousCompletedAt = knownCompletedAt.get(sessionId) ?? 0;
+        knownCompletedAt.set(sessionId, Math.max(previousCompletedAt, completedAt));
         if ((current[sessionId] ?? 0) >= completedAt) {
             // Stale unread losing to a newer local read — repair the server.
             void mutateWithRetry(change.key, null);
             continue;
         }
+        if (completedAt <= previousCompletedAt) continue;
         // Newer completion than any read we know: the tombstone is obsolete.
         clearTombstone(sessionId);
         toAdd.push(sessionId);
@@ -204,5 +216,6 @@ export function applyRemoteReadStateChanges(
 export function resetReadStateSyncForTests(): void {
     credentials = null;
     knownVersions.clear();
+    knownCompletedAt.clear();
     tombstones = null;
 }

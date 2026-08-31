@@ -47,6 +47,7 @@ const agentLabels: Record<AgentKey, string> = {
     gemini: getHarnessName('gemini'),
     openclaw: getHarnessName('openclaw'),
     agy: getHarnessName('agy'),
+    qoder: getHarnessName('qoder'),
 };
 
 // A retired harness keeps its stored defaults — the schema still carries them,
@@ -55,7 +56,7 @@ const agentLabels: Record<AgentKey, string> = {
 const configurableAgentKeys = agentKeys.filter((agent) => !isRetiredHarness(agent));
 
 function optionName(options: ModeOption[], key: string | null | undefined): string {
-    if (!key) return 'none';
+    if (!key) return 'computer default';
     return options.find((option) => option.key === key)?.name ?? key;
 }
 
@@ -236,7 +237,8 @@ export default function AgentsSettingsScreen() {
                 const effectiveDefaults = resolveAgentDefaultConfig(agentDefaultOverrides, agent);
                 const permissionOptions = getHardcodedPermissionModes(agent, t);
                 const modelOptions = getHardcodedModelModes(agent, t).filter((option) => option.key !== 'default');
-                const effortOptions = getEffortLevelsForModel(agent, effectiveDefaults.modelMode);
+                const effortOptions = getEffortLevelsForModel(agent, effectiveDefaults.modelMode)
+                    .filter((option) => option.key !== 'default');
                 const fields: FieldConfig[] = [
                     {
                         field: 'permissionMode',

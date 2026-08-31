@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CLAUDE_FABLE_5_MODEL, CLAUDE_OPUS_4_8_1M_MODEL } from '@/sync/agentDefaults';
 import {
     filterPermissionModesForCli,
     modeSupportedByCli,
@@ -13,12 +14,14 @@ import {
     getClaudePermissionModes,
     getGeminiPermissionModes,
     getDefaultEffortKey,
+    getDefaultEffortKeyForModel,
     getDefaultModelKey,
     getEffortLevelsForModel,
     getDefaultPermissionModeKey,
     includeConfiguredModel,
     getOpenClawPermissionModes,
     mapMetadataOptions,
+    resolveNewSessionModelKey,
     resolveCurrentOption,
 } from './modelModeOptions';
 import { sortPermissionModes } from '@/utils/permissionModeLabels';
@@ -174,12 +177,37 @@ describe('modelModeOptions', () => {
     });
 
     it('uses code defaults for agent defaults', () => {
-        expect(getDefaultPermissionModeKey('claude')).toBe('auto');
-        expect(getDefaultModelKey('claude')).toBe('claude-opus-5');
-        expect(getDefaultEffortKey('claude')).toBe('medium');
-        expect(getDefaultPermissionModeKey('codex')).toBe('auto');
+        expect(getDefaultPermissionModeKey('claude')).toBe('bypassPermissions');
+        expect(CLAUDE_FABLE_5_MODEL).toBe('claude-fable-5');
+        expect(getDefaultModelKey('claude')).toBe(CLAUDE_FABLE_5_MODEL);
+        expect(getDefaultEffortKey('claude')).toBe('high');
+        expect(getDefaultPermissionModeKey('codex')).toBe('yolo');
         expect(getDefaultModelKey('codex')).toBe('gpt-5.6-sol');
-        expect(getDefaultEffortKey('codex')).toBe('medium');
+        expect(getDefaultEffortKey('codex')).toBe('high');
+    });
+
+    it('defaults Codex to yolo, latest non-default model, and high effort', () => {
+        const models = getCodexModelModes();
+
+        expect(getDefaultPermissionModeKey('codex')).toBe('yolo');
+        expect(getDefaultModelKey('codex', models)).toBe('gpt-5.6-sol');
+        expect(getDefaultEffortKeyForModel('codex', 'gpt-5.6-sol')).toBe('high');
+    });
+
+    it('defaults Claude effort to high', () => {
+        expect(getDefaultEffortKeyForModel('claude', 'default')).toBe('high');
+    });
+
+    it('uses the configured Claude model default instead of an untouched draft default', () => {
+        const models = getAvailableModels('claude', null, translate);
+
+        expect(resolveNewSessionModelKey(
+            models,
+            'default',
+            CLAUDE_FABLE_5_MODEL,
+            getDefaultModelKey('claude', models),
+            false,
+        )).toBe(CLAUDE_FABLE_5_MODEL);
     });
 
     it('prefers metadata models over hardcoded fallbacks', () => {

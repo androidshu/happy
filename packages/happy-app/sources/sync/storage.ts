@@ -146,6 +146,7 @@ export interface SessionRowData {
     homeDir: string | null;
     completedTodosCount: number;
     totalTodosCount: number;
+    // True only after the unread completion's latest content is local.
     hasUnread: boolean;
     // Native project identity supplied by Rig. Happy CLI project cards derive
     // their identity from machineId + path instead.
@@ -162,6 +163,7 @@ export interface SessionRowData {
 function buildSessionRowData(
     session: Session,
     unreadSessionIds?: Set<string>,
+    unreadContentPendingIds?: Set<string>,
     machines?: Record<string, Machine>,
     projects: Record<string, Project> = {},
 ): SessionRowData {
@@ -211,7 +213,8 @@ function buildSessionRowData(
         homeDir: session.metadata?.homeDir ?? null,
         completedTodosCount: session.todos?.filter(todo => todo.status === 'completed').length ?? 0,
         totalTodosCount: session.todos?.length ?? 0,
-        hasUnread: unreadSessionIds?.has(session.id) ?? false,
+        hasUnread: (unreadSessionIds?.has(session.id) ?? false)
+            && !(unreadContentPendingIds?.has(session.id) ?? false),
         projectId,
         projectName: linkedProject?.name ?? metadataProject?.name ?? null,
         workspaceId: session.metadata?.workspace?.id ?? null,
@@ -322,9 +325,15 @@ interface StorageState {
     clearFeed: () => void;
     // Unread session tracking (synced across devices via readStateSync)
     unreadSessionIds: Set<string>;
+    // An unread result is not display-ready until its latest completion is
+    // fetched locally. Older history remains on the normal paginated path.
+    // Rows must not paint the green ready dot while the latest result is still
+    // loading.
+    unreadContentPendingIds: Set<string>;
     currentViewingSessionId: string | null;
     markSessionRead: (sessionId: string) => void;
     markSessionUnread: (sessionId: string) => void;
+    markUnreadContentReady: (sessionId: string) => void;
     setCurrentViewingSession: (sessionId: string | null) => void;
     // Applies unread changes that came from the server (startup fetch or a
     // realtime kv-batch-update). Never fires the local hooks — that would echo
@@ -338,6 +347,7 @@ interface StorageState {
 let readStateHooks: {
     onLocalUnread?: (sessionId: string, completedAt: number) => void;
     onLocalRead?: (sessionId: string) => void;
+    onUnreadContentNeeded?: (sessionId: string) => void;
 } = {};
 
 export function configureReadStateHooks(hooks: typeof readStateHooks): void {
@@ -350,6 +360,7 @@ function buildSessionListViewData(
     // Required on purpose: an omitted set silently rebuilds the list with
     // hasUnread=false everywhere — exactly the bug this parameter caused twice.
     unreadSessionIds: Set<string>,
+    unreadContentPendingIds: Set<string>,
     // Also required: rows grey out on their machine's presence, and an omitted
     // map would quietly report every machine as online.
     machines: Record<string, Machine>,
@@ -397,7 +408,13 @@ function buildSessionListViewData(
     archivedSessions.sort((a, b) => sortKey(b) - sortKey(a));
 
     const listData: SessionListViewItem[] = [];
-    const toRow = (session: Session) => buildSessionRowData(session, unreadSessionIds, machines, projects);
+    const toRow = (session: Session) => buildSessionRowData(
+        session,
+        unreadSessionIds,
+        unreadContentPendingIds,
+        machines,
+        projects,
+    );
 
     const rigProjects = [
         ...buildProjectGroups(rigProjectSessions, toRow, isSessionActive),
@@ -480,6 +497,7 @@ export const storage = create<StorageState>()((set, get) => {
         isDataReady: false,
         nativeUpdateStatus: null,
         unreadSessionIds: new Set<string>(),
+        unreadContentPendingIds: new Set<string>(),
         currentViewingSessionId: null,
         isMutableToolCall: (sessionId: string, callId: string) => {
             const sessionMessages = get().sessionMessages[sessionId];
@@ -694,6 +712,7 @@ export const storage = create<StorageState>()((set, get) => {
             // "Was active" = thinking or had pending permission requests.
             // "Now idle" = online, not thinking, no pending permissions.
             let unreadSessionIds = state.unreadSessionIds;
+            let unreadContentPendingIds = state.unreadContentPendingIds;
             sessions.forEach(session => {
                 const oldSession = state.sessions[session.id];
                 if (!oldSession) return;
@@ -708,8 +727,13 @@ export const storage = create<StorageState>()((set, get) => {
                     if (!unreadSessionIds.has(session.id)) {
                         unreadSessionIds = new Set(unreadSessionIds);
                         unreadSessionIds.add(session.id);
-                        readStateHooks.onLocalUnread?.(session.id, Date.now());
                     }
+                    if (!unreadContentPendingIds.has(session.id)) {
+                        unreadContentPendingIds = new Set(unreadContentPendingIds);
+                        unreadContentPendingIds.add(session.id);
+                    }
+                    readStateHooks.onLocalUnread?.(session.id, Date.now());
+                    readStateHooks.onUnreadContentNeeded?.(session.id);
                 }
             });
 
@@ -717,6 +741,7 @@ export const storage = create<StorageState>()((set, get) => {
             const sessionListViewData = buildSessionListViewData(
                 mergedSessions,
                 unreadSessionIds,
+                unreadContentPendingIds,
                 state.machines,
                 state.projects,
             );
@@ -728,6 +753,7 @@ export const storage = create<StorageState>()((set, get) => {
                 sessionListViewData,
                 sessionMessages: updatedSessionMessages,
                 unreadSessionIds,
+                unreadContentPendingIds,
             };
         }),
         applyLoaded: () => set((state) => {
@@ -1132,7 +1158,7 @@ export const storage = create<StorageState>()((set, get) => {
             return {
                 ...state,
                 sessions: updatedSessions,
-                sessionListViewData: buildSessionListViewData(updatedSessions, state.unreadSessionIds, state.machines, state.projects)
+                sessionListViewData: buildSessionListViewData(updatedSessions, state.unreadSessionIds, state.unreadContentPendingIds, state.machines, state.projects)
             };
         }),
         // Permission / model / effort picks are local mirrors of synced session
@@ -1183,7 +1209,7 @@ export const storage = create<StorageState>()((set, get) => {
             return {
                 ...state,
                 sessions: updatedSessions,
-                sessionListViewData: buildSessionListViewData(updatedSessions, state.unreadSessionIds, state.machines, state.projects)
+                sessionListViewData: buildSessionListViewData(updatedSessions, state.unreadSessionIds, state.unreadContentPendingIds, state.machines, state.projects)
             };
         }),
         getSessionPathKey: (sessionId: string): string | null => {
@@ -1215,6 +1241,7 @@ export const storage = create<StorageState>()((set, get) => {
             const sessionListViewData = buildSessionListViewData(
                 state.sessions,
                 state.unreadSessionIds,
+                state.unreadContentPendingIds,
                 mergedMachines,
                 state.projects,
             );
@@ -1236,6 +1263,7 @@ export const storage = create<StorageState>()((set, get) => {
                 sessionListViewData: buildSessionListViewData(
                     state.sessions,
                     state.unreadSessionIds,
+                    state.unreadContentPendingIds,
                     state.machines,
                     mergedProjects,
                 ),
@@ -1254,6 +1282,7 @@ export const storage = create<StorageState>()((set, get) => {
                 sessionListViewData: buildSessionListViewData(
                     state.sessions,
                     state.unreadSessionIds,
+                    state.unreadContentPendingIds,
                     state.machines,
                     projects,
                 ),
@@ -1267,7 +1296,7 @@ export const storage = create<StorageState>()((set, get) => {
             return {
                 ...state,
                 machines: remaining,
-                sessionListViewData: buildSessionListViewData(state.sessions, state.unreadSessionIds, remaining, state.projects)
+                sessionListViewData: buildSessionListViewData(state.sessions, state.unreadSessionIds, state.unreadContentPendingIds, remaining, state.projects)
             };
         }),
         // Artifact methods
@@ -1333,15 +1362,19 @@ export const storage = create<StorageState>()((set, get) => {
             delete lastMessageSentAt[sessionId];
             saveSessionLastMessageSentAt(lastMessageSentAt);
 
+            const unreadContentPendingIds = new Set(state.unreadContentPendingIds);
+            unreadContentPendingIds.delete(sessionId);
+
             // Rebuild sessionListViewData without the deleted session.
             // Pass unreadSessionIds so the remaining sessions keep their unread badges.
-            const sessionListViewData = buildSessionListViewData(remainingSessions, state.unreadSessionIds, state.machines, state.projects);
+            const sessionListViewData = buildSessionListViewData(remainingSessions, state.unreadSessionIds, unreadContentPendingIds, state.machines, state.projects);
             
             return {
                 ...state,
                 sessions: remainingSessions,
                 sessionMessages: remainingSessionMessages,
                 sessionFileCache: remainingFileCache,
+                unreadContentPendingIds,
                 sessionListViewData
             };
         }),
@@ -1473,32 +1506,63 @@ export const storage = create<StorageState>()((set, get) => {
             readStateHooks.onLocalRead?.(sessionId);
             const next = new Set(state.unreadSessionIds);
             next.delete(sessionId);
+            const pending = new Set(state.unreadContentPendingIds);
+            pending.delete(sessionId);
             return {
                 ...state,
                 unreadSessionIds: next,
-                sessionListViewData: buildSessionListViewData(state.sessions, next, state.machines, state.projects),
+                unreadContentPendingIds: pending,
+                sessionListViewData: buildSessionListViewData(state.sessions, next, pending, state.machines, state.projects),
             };
         }),
         markSessionUnread: (sessionId: string) => set((state) => {
             if (state.unreadSessionIds.has(sessionId)) return state;
             readStateHooks.onLocalUnread?.(sessionId, Date.now());
+            readStateHooks.onUnreadContentNeeded?.(sessionId);
             const next = new Set(state.unreadSessionIds);
             next.add(sessionId);
+            const pending = new Set(state.unreadContentPendingIds);
+            pending.add(sessionId);
             return {
                 ...state,
                 unreadSessionIds: next,
-                sessionListViewData: buildSessionListViewData(state.sessions, next, state.machines, state.projects),
+                unreadContentPendingIds: pending,
+                sessionListViewData: buildSessionListViewData(state.sessions, next, pending, state.machines, state.projects),
+            };
+        }),
+        markUnreadContentReady: (sessionId: string) => set((state) => {
+            if (!state.unreadContentPendingIds.has(sessionId)) return state;
+            const pending = new Set(state.unreadContentPendingIds);
+            pending.delete(sessionId);
+            return {
+                ...state,
+                unreadContentPendingIds: pending,
+                sessionListViewData: buildSessionListViewData(
+                    state.sessions,
+                    state.unreadSessionIds,
+                    pending,
+                    state.machines,
+                    state.projects,
+                ),
             };
         }),
         applyRemoteUnreadStates: ({ add, remove }) => set((state) => {
             let next = state.unreadSessionIds;
+            let pending = state.unreadContentPendingIds;
             const ensureCopy = () => {
                 if (next === state.unreadSessionIds) next = new Set(state.unreadSessionIds);
+            };
+            const ensurePendingCopy = () => {
+                if (pending === state.unreadContentPendingIds) pending = new Set(state.unreadContentPendingIds);
             };
             for (const sessionId of remove) {
                 if (next.has(sessionId)) {
                     ensureCopy();
                     next.delete(sessionId);
+                }
+                if (pending.has(sessionId)) {
+                    ensurePendingCopy();
+                    pending.delete(sessionId);
                 }
             }
             for (const sessionId of add) {
@@ -1512,12 +1576,18 @@ export const storage = create<StorageState>()((set, get) => {
                     ensureCopy();
                     next.add(sessionId);
                 }
+                if (!pending.has(sessionId)) {
+                    ensurePendingCopy();
+                    pending.add(sessionId);
+                }
+                readStateHooks.onUnreadContentNeeded?.(sessionId);
             }
-            if (next === state.unreadSessionIds) return state;
+            if (next === state.unreadSessionIds && pending === state.unreadContentPendingIds) return state;
             return {
                 ...state,
                 unreadSessionIds: next,
-                sessionListViewData: buildSessionListViewData(state.sessions, next, state.machines, state.projects),
+                unreadContentPendingIds: pending,
+                sessionListViewData: buildSessionListViewData(state.sessions, next, pending, state.machines, state.projects),
             };
         }),
         setCurrentViewingSession: (sessionId: string | null) => set((state) => {
@@ -1526,12 +1596,16 @@ export const storage = create<StorageState>()((set, get) => {
             const next = sessionId && state.unreadSessionIds.has(sessionId)
                 ? (() => { readStateHooks.onLocalRead?.(sessionId); const s = new Set(state.unreadSessionIds); s.delete(sessionId); return s; })()
                 : state.unreadSessionIds;
+            const pending = sessionId && state.unreadContentPendingIds.has(sessionId)
+                ? (() => { const s = new Set(state.unreadContentPendingIds); s.delete(sessionId); return s; })()
+                : state.unreadContentPendingIds;
             return {
                 ...state,
                 currentViewingSessionId: sessionId,
                 unreadSessionIds: next,
-                ...(next !== state.unreadSessionIds ? {
-                    sessionListViewData: buildSessionListViewData(state.sessions, next, state.machines, state.projects),
+                unreadContentPendingIds: pending,
+                ...(next !== state.unreadSessionIds || pending !== state.unreadContentPendingIds ? {
+                    sessionListViewData: buildSessionListViewData(state.sessions, next, pending, state.machines, state.projects),
                 } : {}),
             };
         }),

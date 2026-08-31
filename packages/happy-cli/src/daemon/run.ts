@@ -421,8 +421,15 @@ export async function startDaemon(): Promise<void> {
 
           // Construct command for the CLI
           const cliPath = join(projectPath(), 'dist', 'index.mjs');
-          // Determine agent command - support claude, codex, gemini, openclaw, and agy
-          const agent = options.agent === 'gemini' ? 'gemini' : (options.agent === 'codex' ? 'codex' : (options.agent === 'openclaw' ? 'openclaw' : (options.agent === 'agy' ? 'agy' : 'claude')));
+          // Determine agent command - support claude, codex, gemini, openclaw, agy, and qoder
+          const agent = options.agent === 'gemini' ? 'gemini' : (options.agent === 'codex' ? 'codex' : (options.agent === 'openclaw' ? 'openclaw' : (options.agent === 'agy' ? 'agy' : (options.agent === 'qoder' ? 'qoder' : 'claude'))));
+          // Qoder rides the generic ACP runner (`happy acp qoder`). The acp
+          // subcommand owns its flags and parses remote mode internally, so the
+          // daemon must not pass `--happy-starting-mode` through to it.
+          const commandPrefix = options.agent === 'qoder' ? ['acp', 'qoder'] : [agent];
+          const startingModeArgs = options.agent === 'qoder'
+            ? []
+            : ['--happy-starting-mode', 'remote'];
           const resumeId = agent === 'claude'
             ? options.resumeClaudeSessionId
             : (agent === 'codex' ? options.resumeCodexThreadId : undefined);
@@ -430,8 +437,8 @@ export async function startDaemon(): Promise<void> {
             ? ` --resume ${shellescape(resumeId)}`
             : '';
           const launchArgs = [
-            agent,
-            '--happy-starting-mode', 'remote',
+            ...commandPrefix,
+            ...startingModeArgs,
             '--started-by', 'daemon',
           ];
           appendDaemonSpawnModeArgs(launchArgs, options, agent);
@@ -517,7 +524,7 @@ export async function startDaemon(): Promise<void> {
         if (!useTmux) {
           logger.debug(`[DAEMON RUN] Using regular process spawning`);
 
-          // Construct arguments for the CLI - support claude, codex, and gemini
+          // Construct arguments for the CLI - support claude, codex, gemini, openclaw, agy, and qoder
           let agentCommand: string;
           switch (options.agent) {
             case 'claude':
@@ -536,15 +543,24 @@ export async function startDaemon(): Promise<void> {
             case 'agy':
               agentCommand = 'agy';
               break;
+            case 'qoder':
+              agentCommand = 'qoder';
+              break;
             default:
               return {
                 type: 'error',
                 errorMessage: `Unsupported agent type: '${options.agent}'. Please update your CLI to the latest version.`
               };
           }
+          // Qoder rides the generic ACP runner (`happy acp qoder`), which parses
+          // its own flags; see the tmux path for the rationale.
+          const commandPrefix = options.agent === 'qoder' ? ['acp', 'qoder'] : [agentCommand];
+          const startingModeArgs = options.agent === 'qoder'
+            ? []
+            : ['--happy-starting-mode', 'remote'];
           const args = [
-            agentCommand,
-            '--happy-starting-mode', 'remote',
+            ...commandPrefix,
+            ...startingModeArgs,
             '--started-by', 'daemon'
           ];
           appendDaemonSpawnModeArgs(args, options, agentCommand);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CLAUDE_FABLE_5_MODEL } from './agentDefaults';
 import { resolveMessageModeMeta, UnsupportedPermissionModeError } from './messageMeta';
 import { rigMetadataFixture } from './__testdata__/rigMetadata';
 
@@ -12,13 +13,13 @@ describe('resolveMessageModeMeta', () => {
         } as any);
 
         expect(meta).toEqual({
-            permissionMode: 'auto',
+            permissionMode: 'yolo',
             model: 'gpt-5.6-sol',
-            effort: 'medium',
+            effort: 'high',
         });
     });
 
-    it('uses Default for an unset Codex code default on an old CLI', () => {
+    it('keeps the Codex YOLO code default on an old CLI', () => {
         const meta = resolveMessageModeMeta({
             permissionMode: null,
             modelMode: null,
@@ -26,10 +27,10 @@ describe('resolveMessageModeMeta', () => {
             metadata: { flavor: 'codex', version: '1.2.0' },
         } as any);
 
-        expect(meta.permissionMode).toBe('default');
+        expect(meta.permissionMode).toBe('yolo');
     });
 
-    it('uses Auto for an unset Codex code default on a new CLI', () => {
+    it('keeps the Codex YOLO code default on a new CLI', () => {
         const meta = resolveMessageModeMeta({
             permissionMode: null,
             modelMode: null,
@@ -37,7 +38,7 @@ describe('resolveMessageModeMeta', () => {
             metadata: { flavor: 'codex', version: '1.2.1-beta.2' },
         } as any);
 
-        expect(meta.permissionMode).toBe('auto');
+        expect(meta.permissionMode).toBe('yolo');
     });
 
     it('keeps an explicit Codex YOLO override on an old CLI', () => {
@@ -179,7 +180,7 @@ describe('resolveMessageModeMeta', () => {
             agentDefaultOverrides: {
                 claude: {
                     permissionMode: 'bypassPermissions',
-                    modelMode: 'opus',
+                    modelMode: 'claude-sonnet-4-6',
                     effortLevel: 'medium',
                 },
             },
@@ -187,8 +188,44 @@ describe('resolveMessageModeMeta', () => {
 
         expect(meta).toEqual({
             permissionMode: 'bypassPermissions',
-            model: 'opus',
+            model: 'claude-sonnet-4-6',
             effort: 'medium',
+        });
+    });
+
+    it('sends the Claude Fable 5 code default when no model override is selected', () => {
+        const meta = resolveMessageModeMeta({
+            permissionMode: null,
+            modelMode: null,
+            effortLevel: null,
+            metadata: { flavor: 'claude' },
+        } as any);
+
+        expect(meta).toEqual({
+            permissionMode: 'bypassPermissions',
+            model: CLAUDE_FABLE_5_MODEL,
+            effort: 'high',
+        });
+    });
+
+    it('ignores stale Claude model default overrides instead of sending old aliases', () => {
+        const meta = resolveMessageModeMeta({
+            permissionMode: null,
+            modelMode: null,
+            effortLevel: null,
+            metadata: { flavor: 'claude' },
+        } as any, {
+            agentDefaultOverrides: {
+                claude: {
+                    modelMode: 'opus',
+                },
+            },
+        } as any);
+
+        expect(meta).toEqual({
+            permissionMode: 'bypassPermissions',
+            model: CLAUDE_FABLE_5_MODEL,
+            effort: 'high',
         });
     });
 
@@ -215,6 +252,27 @@ describe('resolveMessageModeMeta', () => {
         });
     });
 
+    it('uses the latest advertised Codex model from metadata', () => {
+        const meta = resolveMessageModeMeta({
+            permissionMode: null,
+            modelMode: null,
+            effortLevel: null,
+            metadata: {
+                flavor: 'codex',
+                models: [
+                    { code: 'gpt-6', value: 'gpt-6' },
+                    { code: 'gpt-5.5', value: 'gpt-5.5' },
+                ],
+            },
+        } as any);
+
+        expect(meta).toEqual({
+            permissionMode: 'yolo',
+            model: 'gpt-6',
+            effort: 'high',
+        });
+    });
+
     it('passes a custom codex model through unchanged', () => {
         const meta = resolveMessageModeMeta({
             permissionMode: null,
@@ -224,9 +282,9 @@ describe('resolveMessageModeMeta', () => {
         } as any);
 
         expect(meta).toEqual({
-            permissionMode: 'auto',
+            permissionMode: 'yolo',
             model: 'my-workspace-model',
-            effort: 'medium',
+            effort: 'high',
         });
     });
 
@@ -243,9 +301,9 @@ describe('resolveMessageModeMeta', () => {
         } as any);
 
         expect(meta).toEqual({
-            permissionMode: 'auto',
+            permissionMode: 'yolo',
             model: 'my-workspace-model',
-            effort: 'medium',
+            effort: 'high',
         });
     });
 
@@ -280,7 +338,26 @@ describe('resolveMessageModeMeta', () => {
             metadata: { flavor: 'claude' },
         } as any);
 
-        expect(meta).toEqual({ model: null });
+        expect(meta).toEqual({
+            permissionMode: 'bypassPermissions',
+            model: null,
+            effort: 'high',
+        });
+    });
+
+    it('treats explicit default Claude effort as a reset override', () => {
+        const meta = resolveMessageModeMeta({
+            permissionMode: null,
+            modelMode: null,
+            effortLevel: 'default',
+            metadata: { flavor: 'claude' },
+        } as any);
+
+        expect(meta).toEqual({
+            permissionMode: 'bypassPermissions',
+            model: CLAUDE_FABLE_5_MODEL,
+            effort: null,
+        });
     });
 
     it('sends canonical Rig selection metadata using mode code rather than semantic kind', () => {

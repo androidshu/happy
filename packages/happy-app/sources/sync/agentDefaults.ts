@@ -1,7 +1,7 @@
 import * as z from 'zod';
 import { compareVersionsWithPrerelease, isWellFormedVersion } from '@/utils/versionUtils';
 
-export const agentKeys = ['claude', 'codex', 'gemini', 'openclaw', 'agy'] as const;
+export const agentKeys = ['claude', 'codex', 'gemini', 'openclaw', 'agy', 'qoder'] as const;
 export type AgentKey = typeof agentKeys[number];
 
 export const AgentDefaultOverrideSchema = z.object({
@@ -16,6 +16,7 @@ export const AgentDefaultOverridesSchema = z.object({
     gemini: AgentDefaultOverrideSchema.optional(),
     openclaw: AgentDefaultOverrideSchema.optional(),
     agy: AgentDefaultOverrideSchema.optional(),
+    qoder: AgentDefaultOverrideSchema.optional(),
 }).passthrough().default({});
 
 export type AgentDefaultOverride = z.infer<typeof AgentDefaultOverrideSchema>;
@@ -28,15 +29,39 @@ export type AgentDefaultConfig = {
     effortLevel: string | null;
 };
 
+export const CLAUDE_FABLE_5_MODEL = 'claude-fable-5';
+export const CLAUDE_OPUS_4_8_1M_MODEL = 'claude-opus-4-8[1m]';
+
+const claudeModelModes = new Set([
+    'default',
+    CLAUDE_FABLE_5_MODEL,
+    CLAUDE_OPUS_4_8_1M_MODEL,
+    'claude-sonnet-4-6',
+    'claude-haiku-4-5',
+]);
+
+function normalizeOverride(flavor: string | null | undefined, override: AgentDefaultOverride): AgentDefaultOverride {
+    if (normalizeAgentKey(flavor) !== 'claude' || override.modelMode === undefined || claudeModelModes.has(override.modelMode)) {
+        return override;
+    }
+
+    const normalized = { ...override };
+    delete normalized.modelMode;
+    return normalized;
+}
+
 const codeAgentDefaults: Record<AgentKey, AgentDefaultConfig> = {
-    // Auto is the reviewed everyday mode for both shipped code agents. The
-    // old CLI fallback is applied only when a machine version is known below;
-    // a user override is kept separate and is never rewritten here.
-    claude: { permissionMode: 'auto', modelMode: 'claude-opus-5', effortLevel: 'medium' },
-    codex: { permissionMode: 'auto', modelMode: 'gpt-5.6-sol', effortLevel: 'medium' },
+    // The Claude UI key for YOLO is `bypassPermissions`; the CLI also accepts
+    // `yolo` and maps it to the Claude SDK's bypass mode.
+    claude: { permissionMode: 'bypassPermissions', modelMode: CLAUDE_FABLE_5_MODEL, effortLevel: 'high' },
+    codex: { permissionMode: 'yolo', modelMode: 'gpt-5.6-sol', effortLevel: 'high' },
     gemini: { permissionMode: 'default', modelMode: 'gemini-2.5-pro', effortLevel: null },
     openclaw: { permissionMode: 'default', modelMode: 'default', effortLevel: null },
     agy: { permissionMode: 'default', modelMode: 'Gemini 3.1 Pro (High)', effortLevel: null },
+    // Qoder's default permission mode is managed by the CLI itself (it asks
+    // through ACP and Happy relays the request); the model list mirrors the
+    // Qoder CLI's `--model` ids.
+    qoder: { permissionMode: 'default', modelMode: 'default', effortLevel: null },
 };
 
 // `auto` first shipped in happy-cli 1.2.1-beta.2, for Claude and Codex alike.
@@ -60,7 +85,7 @@ function resolveCodeDefaultPermissionMode(
 }
 
 export function normalizeAgentKey(flavor: string | null | undefined): AgentKey {
-    if (flavor === 'codex' || flavor === 'gemini' || flavor === 'openclaw' || flavor === 'agy') {
+    if (flavor === 'codex' || flavor === 'gemini' || flavor === 'openclaw' || flavor === 'agy' || flavor === 'qoder') {
         return flavor;
     }
     return 'claude';
@@ -100,7 +125,7 @@ export function getAgentDefaultOverride(
     overrides: AgentDefaultOverrides | null | undefined,
     flavor: string | null | undefined,
 ): AgentDefaultOverride {
-    const override = overrides?.[normalizeAgentKey(flavor)] ?? {};
+    const override = normalizeOverride(flavor, overrides?.[normalizeAgentKey(flavor)] ?? {});
     const permissionMode = retirePermissionMode(override.permissionMode);
     return permissionMode === override.permissionMode
         ? override

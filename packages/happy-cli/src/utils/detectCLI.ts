@@ -10,6 +10,7 @@ export interface CLIAvailability {
   gemini: boolean;
   openclaw: boolean;
   agy: boolean;
+  qoder: boolean;
   detectedAt: number;
 }
 
@@ -47,7 +48,11 @@ function detectPosix(): CLIAvailability {
   const openclawEnv = !!process.env.OPENCLAW_GATEWAY_URL;
   const openclaw = openclawCommand || openclawConfig || openclawEnv;
 
-  return { claude, codex, gemini, openclaw, agy, detectedAt: Date.now() };
+  // Qoder CLI ships both `qoder` and `qodercli` entry points; the canonical
+  // binary the ACP runner launches is `qodercli`.
+  const qoder = commandExists('qodercli') || commandExists('qoder');
+
+  return { claude, codex, gemini, openclaw, agy, qoder, detectedAt: Date.now() };
 }
 
 function detectWindows(): CLIAvailability {
@@ -71,5 +76,9 @@ function detectWindows(): CLIAvailability {
   const openclawEnv = !!process.env.OPENCLAW_GATEWAY_URL;
   const openclaw = openclawCommand || openclawConfig || openclawEnv;
 
-  return { claude, codex, gemini, openclaw, agy, detectedAt: Date.now() };
+  // Qoder CLI ships both `qoder` and `qodercli` entry points; the canonical
+  // binary the ACP runner launches is `qodercli`.
+  const qoder = checkCommand('qodercli') || checkCommand('qoder');
+
+  return { claude, codex, gemini, openclaw, agy, qoder, detectedAt: Date.now() };
 }

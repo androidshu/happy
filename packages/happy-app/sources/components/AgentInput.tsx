@@ -94,6 +94,14 @@ interface AgentInputProps {
         contextSize: number;
         contextWindow?: number;
     };
+    claudeUsageStatus?: {
+        contextUsedPercent?: number;
+        contextWindowSize?: number;
+        fiveHourUsedPercent?: number;
+        fiveHourStatus?: 'allowed' | 'allowed_warning' | 'rejected';
+        weeklyUsedPercent?: number;
+        weeklyStatus?: 'allowed' | 'allowed_warning' | 'rejected';
+    };
     alwaysShowContextSize?: boolean;
     /** Hide the auxiliary connection/mode row while reading older messages. */
     showStatusDetails?: boolean;
@@ -109,7 +117,7 @@ interface AgentInputProps {
     /** Plan quota windows from agent state, for the week stat and its popup. */
     sessionStatusUsageLimits?: UsageLimitsLike | null;
     onFileViewerPress?: () => void;
-    agentType?: 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy';
+    agentType?: 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy' | 'qoder';
     onAgentClick?: () => void;
     machineName?: string | null;
     onMachineClick?: () => void;
@@ -454,6 +462,23 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     },
 }));
 
+const MAX_CONTEXT_SIZE = 190000;
+
+const getContextWarning = (contextSize: number, alwaysShow: boolean = false, theme: Theme) => {
+    const percentageUsed = (contextSize / MAX_CONTEXT_SIZE) * 100;
+    const percentageRemaining = Math.max(0, Math.min(100, 100 - percentageUsed));
+
+    if (percentageRemaining <= 5) {
+        return { text: t('agentInput.context.remaining', { percent: Math.round(percentageRemaining) }), color: theme.colors.warningCritical };
+    } else if (percentageRemaining <= 10) {
+        return { text: t('agentInput.context.remaining', { percent: Math.round(percentageRemaining) }), color: theme.colors.warning };
+    } else if (alwaysShow) {
+        // Show context remaining in neutral color when not near limit
+        return { text: t('agentInput.context.remaining', { percent: Math.round(percentageRemaining) }), color: theme.colors.warning };
+    }
+    return null; // No display needed
+};
+
 const formatTokenCount = (tokens: number): string => {
     if (tokens < 1000) {
         return `${Math.max(0, Math.round(tokens))}`;
@@ -505,11 +530,71 @@ type StatusRowProps = {
     connectionStatus?: AgentInputProps['connectionStatus'];
     gitBranch: string | null;
     gitChanges: { insertions: number; deletions: number; approximate: boolean } | null;
+    contextWarning: { text: string; color: string } | null;
+    displayPermissionMode: ReturnType<typeof hackMode> | null;
+    permissionModeKey: string;
+    isSandboxedYoloMode: boolean;
+    permissionLabel: string | null;
+    claudeUsageStatus?: AgentInputProps['claudeUsageStatus'];
+    zenMode?: boolean;
 };
 
 const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRowProps) {
     const { theme } = useUnistyles();
-    if (!p.connectionStatus && !p.gitBranch) {
+    const showPermissionBadge = !!p.displayPermissionMode
+        && p.permissionModeKey !== 'default'
+        && !p.zenMode
+        && !!p.permissionLabel;
+    const formatPercent = (value: number | undefined) => (
+        value !== undefined ? `${Math.round(value)}%` : undefined
+    );
+    const formatContext = () => {
+        const percent = formatPercent(p.claudeUsageStatus?.contextUsedPercent);
+        const size = p.claudeUsageStatus?.contextWindowSize;
+        if (percent && size) {
+            const compactSize = size >= 1000000
+                ? `${Math.round(size / 1000000)}M`
+                : `${Math.round(size / 1000)}k`;
+            return `ctx:${percent}/${compactSize}`;
+        }
+        return `ctx:${percent ?? '--'}`;
+    };
+    const formatLimit = (
+        label: string,
+        value: number | undefined,
+        status: 'allowed' | 'allowed_warning' | 'rejected' | undefined,
+    ) => {
+        const percent = formatPercent(value);
+        if (percent) {
+            return `${label}:${percent}`;
+        }
+        if (status === 'allowed') {
+            return `${label}:ok`;
+        }
+        if (status === 'allowed_warning') {
+            return `${label}:warn`;
+        }
+        if (status === 'rejected') {
+            return `${label}:limit`;
+        }
+        return `${label}:--`;
+    };
+    const usageParts = [
+        p.claudeUsageStatus ? formatContext() : null,
+        p.claudeUsageStatus ? formatLimit('5h', p.claudeUsageStatus.fiveHourUsedPercent, p.claudeUsageStatus.fiveHourStatus) : null,
+        p.claudeUsageStatus ? formatLimit('7d', p.claudeUsageStatus.weeklyUsedPercent, p.claudeUsageStatus.weeklyStatus) : null,
+    ].filter((part): part is string => part !== null);
+    const usageMax = Math.max(
+        p.claudeUsageStatus?.contextUsedPercent ?? 0,
+        p.claudeUsageStatus?.fiveHourUsedPercent ?? 0,
+        p.claudeUsageStatus?.weeklyUsedPercent ?? 0,
+    );
+    const usageColor = usageMax >= 90
+        ? theme.colors.warningCritical
+        : usageMax >= 80
+            ? theme.colors.warning
+            : theme.colors.textSecondary;
+    if (!p.connectionStatus && !p.contextWarning && usageParts.length === 0 && !showPermissionBadge) {
         return null;
     }
     return (
@@ -595,6 +680,26 @@ const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRow
                             </>
                         )}
                     </>
+                )}
+                {p.contextWarning && (
+                    <Text style={{
+                        fontSize: 11,
+                        color: p.contextWarning.color,
+                        marginLeft: p.connectionStatus ? 8 : 0,
+                        ...Typography.default()
+                    }}>
+                        {p.connectionStatus ? '• ' : ''}{p.contextWarning.text}
+                    </Text>
+                )}
+                {usageParts.length > 0 && (
+                    <Text style={{
+                        fontSize: 11,
+                        color: usageColor,
+                        marginLeft: (p.connectionStatus || p.contextWarning) ? 8 : 0,
+                        ...Typography.default()
+                    }}>
+                        {(p.connectionStatus || p.contextWarning) ? '• ' : ''}{usageParts.join(' · ')}
+                    </Text>
                 )}
             </View>
             {p.gitBranch && (
@@ -889,6 +994,11 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         }
         return label;
     }, [isSandboxEnabled]);
+
+    // Calculate context warning
+    const contextWarning = props.usageData?.contextSize
+        ? getContextWarning(props.usageData.contextSize, props.alwaysShowContextSize ?? false, theme)
+        : null;
 
     // Usage row under the card: week quota + context gauge
     const usageLimitShowRemaining = useSetting('usageLimitShowRemaining');
@@ -2064,6 +2174,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         connectionStatus={props.connectionStatus}
                         gitBranch={props.sessionStatusGitBranch ?? null}
                         gitChanges={props.sessionStatusGitChanges ?? null}
+                        contextWarning={contextWarning}
+                        displayPermissionMode={displayPermissionMode}
+                        permissionModeKey={permissionModeKey}
+                        isSandboxedYoloMode={isSandboxedYoloMode}
+                        permissionLabel={displayPermissionMode ? withSandboxSuffix(displayPermissionMode.name, permissionModeKey) : null}
+                        claudeUsageStatus={props.claudeUsageStatus}
+                        zenMode={props.zenMode}
                     />
 
                     <AgentInputContextChips

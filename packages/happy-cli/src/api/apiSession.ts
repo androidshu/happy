@@ -873,11 +873,17 @@ export class ApiSessionClient extends EventEmitter {
      * Send a ping message to keep the connection alive
      */
     keepAlive(thinking: boolean, mode: 'local' | 'remote') {
-        this.lastKeepAliveState = { thinking, mode };
+        const previous = this.lastKeepAliveState;
+        const state = { thinking, mode } as const;
+        const stateChanged = previous !== null
+            && (previous.thinking !== thinking || previous.mode !== mode);
+        this.lastKeepAliveState = state;
         if (process.env.DEBUG) { // too verbose for production
             logger.debug(`[API] Sending keep alive message: ${thinking}`);
         }
-        this.emitKeepAlive({ thinking, mode }, true);
+        // State transitions must survive temporary socket backpressure. Only
+        // identical periodic heartbeats are safe to drop.
+        this.emitKeepAlive(state, !stateChanged);
     }
 
     private emitKeepAlive(

@@ -443,9 +443,7 @@ export function SessionsList({
             : [];
 
         if (flatSessionList) {
-            // A chat list should always float the thing the user just replied
-            // to, so the canonical layout is ordered by recent activity.
-            const flatRows = buildFlatSessionRows(groupedRows, { sortByActivity: true });
+            const flatRows = buildFlatSessionRows(groupedRows);
             // The flat list keeps one section per computer so work on different
             // machines reads as blocks rather than interleaving invisibly. A
             // single computer needs no divider between itself and nothing, so
@@ -801,7 +799,7 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
                             <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />
                         </View>
                     )}
-                    <SessionFlavorBadge flavor={session.flavor} style={styles.sessionFlavorBadge} />
+                    <SessionFlavorBadge flavor={session.flavor} clientId={session.clientId} style={styles.sessionFlavorBadge} />
                     <Text style={[
                         styles.sessionTitle,
                         status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected

@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { Avatar } from './Avatar';
+import { SessionFlavorBadge } from './SessionFlavorBadge';
 import { StatusDot } from './StatusDot';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
 import { SessionShortcutHintBadge } from './ShortcutHints';
@@ -22,13 +22,9 @@ import { RigGitLineChanges } from './RigGitLineChanges';
 import { ShimmerText } from './ShimmerText';
 import { resolveFlatSessionRowPresentation } from '@/utils/flatSessionRowPresentation';
 
-// Small on purpose: the generated avatar is decoration, not identity — most
-// sessions have no custom project art, so a big abstract pattern would dominate
-// rows while saying nothing. This size keeps the row anchored without stealing
-// attention from the title and status, and still reads custom project art fine.
-const AVATAR_SIZE = 36;
+const AGENT_LABEL_WIDTH = 50;
 const ROW_PADDING_LEFT = 16;
-const AVATAR_GAP = 10;
+const AGENT_LABEL_GAP = 10;
 const TOP_RIGHT_SLOT_WIDTH = 56;
 const STATUS_DOT_SIZE = 8;
 const UNREAD_DOT_CLEAR_GRACE_MS = 350;
@@ -44,8 +40,8 @@ export function flatListBackgroundColor(theme: Theme): string {
 }
 
 /**
- * One session in the flat home list: avatar, title, the project and worktree it
- * runs in, and its status. The row spans the full width on the page background
+ * One session in the flat home list: agent, directory, generated title,
+ * worktree, and status. The row spans the full width on the page background
  * with a hairline under it, so the list reads as one continuous column rather
  * than a stack of project cards.
  */
@@ -56,7 +52,7 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
     /** Retired work: the same row, faded back and drained of avatar colour. */
     archived?: boolean;
 }) => {
-    const { session, projectName, workspaceName } = row;
+    const { session, directoryName, workspaceName } = row;
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
@@ -93,7 +89,7 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
         faded,
     });
     // The status dot speaks the old project-card language — running breathes
-    // blue, blocked breathes orange, an unread result settles green and is
+    // blue, blocked breathes orange, a locally-synced unread result settles green and is
     // cancelled by opening the session — shrunk to the metadata line so it
     // never competes with the title.
     const statusDotLabel = presentation.statusDot.type === 'none'
@@ -108,8 +104,6 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
                         ? t('status.disconnected')
                         : t('status.unread');
 
-    // The same `lastActivityAt` the flat list sorts on, so the stamps run in
-    // the order the rows do.
     const timestamp = React.useMemo(
         () => formatSessionListTimestamp(session.lastActivityAt),
         [session.lastActivityAt],
@@ -154,16 +148,11 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
             onPress={handlePress}
             {...menuProps}
         >
-            <View style={[styles.avatar, faded && styles.avatarFaded]}>
-                <Avatar
-                    id={session.avatarId}
-                    size={AVATAR_SIZE}
-                    monochrome={faded}
+            <View style={[styles.agentLabel, faded && styles.agentLabelFaded]}>
+                <SessionFlavorBadge
                     flavor={session.flavor}
                     clientId={session.clientId}
-                    imageUrl={session.projectAvatarUri}
-                    thumbhash={session.projectAvatarThumbhash}
-                    badgeLocation="sessionList"
+                    style={styles.agentBadge}
                 />
             </View>
 
@@ -172,7 +161,7 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
                     <View style={styles.titleContainer}>
                         {presentation.shimmerTitle ? (
                             <ShimmerText
-                                text={session.name}
+                                text={directoryName}
                                 style={styles.title}
                                 baseColor={theme.colors.textSecondary}
                                 highlightColor={theme.colors.text}
@@ -185,7 +174,7 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
                                 ]}
                                 numberOfLines={1}
                             >
-                                {session.name}
+                                {directoryName}
                             </Text>
                         )}
                     </View>
@@ -197,8 +186,8 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
                     </View>
                 </View>
 
-                <Text style={styles.project} numberOfLines={1}>
-                    {projectName}
+                <Text style={styles.generatedTitle} numberOfLines={1}>
+                    {session.name}
                 </Text>
 
                 <View style={styles.workspaceRow}>
@@ -292,7 +281,7 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
 const stylesheet = StyleSheet.create((theme) => ({
     row: {
         flexDirection: 'row',
-        // Centred, not top-aligned: the avatar sits in the middle of the three
+        // Centred, not top-aligned: the agent label sits in the middle of the three
         // text lines the way a chat list draws it, rather than hanging off the
         // title.
         alignItems: 'center',
@@ -304,14 +293,19 @@ const stylesheet = StyleSheet.create((theme) => ({
     rowSelected: {
         backgroundColor: theme.colors.surfaceSelected,
     },
-    avatar: {
-        width: AVATAR_SIZE,
-        height: AVATAR_SIZE,
-        marginRight: AVATAR_GAP,
+    agentLabel: {
+        width: AGENT_LABEL_WIDTH,
+        marginRight: AGENT_LABEL_GAP,
+        alignItems: 'stretch',
+        justifyContent: 'center',
+    },
+    agentBadge: {
+        width: AGENT_LABEL_WIDTH,
+        paddingHorizontal: 3,
     },
     // Faded rows keep the exact geometry of live ones and differ only by being
     // pulled back, so the list stays one column rather than two designs.
-    avatarFaded: {
+    agentLabelFaded: {
         opacity: 0.5,
     },
     contentFaded: {
@@ -362,7 +356,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         textAlign: 'right',
         ...Typography.default('regular'),
     },
-    project: {
+    generatedTitle: {
         fontSize: 15,
         lineHeight: 20,
         color: theme.colors.textSecondary,
@@ -402,12 +396,12 @@ const stylesheet = StyleSheet.create((theme) => ({
         justifyContent: 'center',
     },
     // Sits on the row itself rather than the text column, so centring the
-    // avatar cannot drag it up off the row's bottom edge. Starts where the text
+    // agent label cannot drag it up off the row's bottom edge. Starts where the text
     // does and runs to the screen edge, the way a chat list separates rows
     // without cutting under the avatar.
     divider: {
         position: 'absolute',
-        left: ROW_PADDING_LEFT + AVATAR_SIZE + AVATAR_GAP,
+        left: ROW_PADDING_LEFT + AGENT_LABEL_WIDTH + AGENT_LABEL_GAP,
         right: 0,
         bottom: 0,
         height: StyleSheet.hairlineWidth,

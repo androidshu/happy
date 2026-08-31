@@ -81,15 +81,11 @@ function hasCodexSubagentReference(message: Record<string, unknown>): boolean {
     return false;
 }
 
-const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol';
-const DEFAULT_CODEX_EFFORT: ReasoningEffort = 'medium';
-// Codex's app-server protocol requires a concrete approval policy and sandbox
-// on every turn, so unlike Claude there is no "send nothing" here. This is the
-// closest honest equivalent: `auto` is Codex's own shipped default preset
-// (on-request approvals inside the workspace sandbox), so leaving the picker on
-// Default lands where plain `codex` would. It used to be 'yolo', which quietly
-// gave full access to anyone who never touched the picker.
-const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'auto';
+// Local defaults: let Codex pick its own model, and default to YOLO with high
+// effort (matching the app-side agent defaults in agentDefaults.ts).
+const DEFAULT_CODEX_MODEL: string | undefined = undefined;
+const DEFAULT_CODEX_EFFORT: ReasoningEffort = 'high';
+const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
 
 /**
  * Main entry point for the codex command with ink UI
@@ -996,6 +992,15 @@ export async function runCodex(opts: {
                     includeTitleInstruction: first,
                 });
 
+                // The accepted turn is the source of truth for running state.
+                // Codex app-server may omit turn/started (notably when a queued
+                // follow-up begins immediately after the previous turn), so
+                // waiting for task_started leaves the session working while
+                // Happy keeps publishing thinking=false.
+                if (!thinking) {
+                    thinking = true;
+                    session.keepAlive(thinking, 'remote');
+                }
                 const result = await client.sendTurnAndWait(turnPrompt, {
                     model: message.mode.model,
                     approvalPolicy: executionPolicy.approvalPolicy,

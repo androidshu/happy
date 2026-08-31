@@ -274,6 +274,20 @@ export function filterPermissionModesForCli<T extends ModeOption>(
     return modes.filter((mode) => modeSupportedByCli(mode, cliVersion));
 }
 
+// Qoder relays permission requests through ACP, so the mode ids the CLI
+// exposes (`default / plan / auto / accept_edits / bypass_permissions`) are
+// reachable with the shared Happy keys — the ACP runner resolves them with a
+// separator-insensitive match against the session's reported modes.
+export function getQoderPermissionModes(translate: Translate): PermissionMode[] {
+    return [
+        { key: 'default', name: 'Default', description: translate('agentInput.permissionMode.default') },
+        { key: 'auto', name: 'Auto', description: translate('agentInput.permissionMode.auto') },
+        { key: 'plan', name: 'Plan', description: translate('agentInput.permissionMode.plan') },
+        { key: 'acceptEdits', name: 'Accept edits', description: translate('agentInput.permissionMode.acceptEdits') },
+        { key: 'bypassPermissions', name: 'Yolo', description: translate('agentInput.permissionMode.bypassPermissions') },
+    ];
+}
+
 export function getHardcodedPermissionModes(flavor: AgentFlavor, translate: Translate): PermissionMode[] {
     if (flavor === 'codex') {
         return getCodexPermissionModes(translate);
@@ -286,6 +300,9 @@ export function getHardcodedPermissionModes(flavor: AgentFlavor, translate: Tran
     }
     if (flavor === 'agy') {
         return getAgyPermissionModes(translate);
+    }
+    if (flavor === 'qoder') {
+        return getQoderPermissionModes(translate);
     }
     return getClaudePermissionModes(translate);
 }
@@ -313,6 +330,17 @@ export function getAgyModelModes(): ModelMode[] {
     ];
 }
 
+// Keys mirror the Qoder CLI's `--model` ids (`--list-models`); `default`
+// leaves the CLI's own selection untouched.
+export function getQoderModelModes(): ModelMode[] {
+    return [
+        { key: 'default', name: 'Default model', description: null },
+        { key: 'auto', name: 'Auto', description: null },
+        { key: 'lite', name: 'Lite', description: null },
+        { key: 'performance', name: 'Performance', description: null },
+    ];
+}
+
 export function getHardcodedModelModes(flavor: AgentFlavor, _translate: Translate): ModelMode[] {
     if (flavor === 'codex') {
         return getCodexModelModes();
@@ -325,6 +353,9 @@ export function getHardcodedModelModes(flavor: AgentFlavor, _translate: Translat
     }
     if (flavor === 'agy') {
         return getAgyModelModes();
+    }
+    if (flavor === 'qoder') {
+        return getQoderModelModes();
     }
     return getClaudeModelModes();
 }
@@ -426,7 +457,7 @@ export function getAvailablePermissionModes(
         }
         return modes;
     }
-    if (flavor === 'claude' || flavor === 'codex' || flavor === 'openclaw' || flavor === 'agy') {
+    if (flavor === 'claude' || flavor === 'codex' || flavor === 'openclaw' || flavor === 'agy' || flavor === 'qoder') {
         // metadata.version is the happy-cli version running this session
         // (createSessionMetadata.ts), which is what has to parse the mode.
         return hackModes(filterPermissionModesForCli(
@@ -463,8 +494,33 @@ export function resolveCurrentOption<T extends ModeOption>(
     return null;
 }
 
-export function getDefaultModelKey(flavor: AgentFlavor): string {
-    return getCodeAgentDefaults(flavor).modelMode;
+function firstNonDefaultOptionKey(options: ModeOption[]): string | null {
+    return options.find((option) => option.key !== 'default')?.key ?? null;
+}
+
+export function getDefaultModelKey(flavor: AgentFlavor, options: ModeOption[] = []): string {
+    const configuredDefault = getCodeAgentDefaults(flavor).modelMode;
+    if ((flavor === 'codex' || flavor === 'gemini') && options.length > 0) {
+        return firstNonDefaultOptionKey(options) ?? configuredDefault;
+    }
+    return configuredDefault;
+}
+
+export function resolveNewSessionModelKey(
+    options: ModeOption[],
+    draftKey: string | null | undefined,
+    configuredDefaultKey: string | null | undefined,
+    fallbackDefaultKey: string | null | undefined,
+    draftTouched: boolean,
+): string {
+    const draftCandidate = (draftTouched || draftKey !== 'default')
+        ? findOptionByKey(options, draftKey)?.key
+        : null;
+    return draftCandidate
+        ?? findOptionByKey(options, configuredDefaultKey)?.key
+        ?? findOptionByKey(options, fallbackDefaultKey)?.key
+        ?? options[0]?.key
+        ?? 'default';
 }
 
 export function getDefaultPermissionModeKey(flavor: AgentFlavor): string {
@@ -560,11 +616,11 @@ export function getRigCurrentModelOptionKey(metadata: Metadata | null | undefine
     return getRigSelectedModelKey(metadata);
 }
 
-// Default effort for a model — highest the model allows
+// Keep both Claude and Codex on the same explicit default across app and CLI.
 export function getDefaultEffortKeyForModel(flavor: AgentFlavor, modelKey: string): string | null {
     const levels = getEffortLevelsForModel(flavor, modelKey);
     if (levels.length === 0) return null;
-    return getCodeAgentDefaults(flavor).effortLevel ?? levels[levels.length - 1].key;
+    return levels.find((level) => level.key === 'high')?.key ?? levels[Math.max(0, levels.length - 2)].key;
 }
 
 export function getSupportsWorktree(flavor: AgentFlavor): boolean {

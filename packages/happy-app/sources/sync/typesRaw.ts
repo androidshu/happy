@@ -467,6 +467,32 @@ export type RawRecord = z.infer<typeof rawRecordSchema>;
 // Export schemas for validation
 export const RawRecordSchema = rawRecordSchema;
 
+export type SessionLifecycleUpdate = {
+    thinking: boolean;
+    at: number;
+};
+
+/**
+ * Reads the durable turn boundary carried by the session protocol. Activity
+ * heartbeats are only a live transport hint; these persisted messages are the
+ * source of truth when a client reconnects or misses an ephemeral update.
+ */
+export function extractSessionLifecycleUpdate(raw: unknown): SessionLifecycleUpdate | null {
+    const parsed = rawRecordSchema.safeParse(raw);
+    if (!parsed.success || parsed.data.role === 'user' || parsed.data.content.type !== 'session') {
+        return null;
+    }
+
+    const envelope = parsed.data.content.data;
+    if (envelope.ev.t === 'turn-start') {
+        return { thinking: true, at: envelope.time };
+    }
+    if (envelope.ev.t === 'turn-end') {
+        return { thinking: false, at: envelope.time };
+    }
+    return null;
+}
+
 
 //
 // Normalized types

@@ -3,31 +3,26 @@ import { compareInDictionaryOrder } from '@/utils/sessionDisplayOrder';
 import { getRepoPath, getWorktreeName, isWorktreePath } from '@/utils/worktreePaths';
 
 /**
- * One session as the flat home list shows it: the session's own title, and the
- * project/worktree it belongs to spelled out on the row instead of being
- * implied by a card it sits inside.
+ * One session as the flat home list shows it: its directory is the stable
+ * identity, while the generated session title is secondary display text.
  */
 export interface FlatSessionRowData {
     session: SessionRowData;
-    projectName: string;
+    directoryName: string;
     /** Null in a project's primary checkout, which needs no second name. */
     workspaceName: string | null;
 }
 
 /**
- * Flattens the project cards into one chronological list.
- *
- * Grouping by project is what loses the global ordering: sessions are sorted
- * once, then dealt into projects, so a project's older sessions end up directly
- * under its newest one. The flat list wants what the user last touched at the
- * top regardless of project, so it re-sorts the rows here.
+ * Flattens the project cards into one list ordered by directory name. Directory
+ * and session ids break ties without depending on activity or generated title,
+ * so neither a running turn nor a title update can move a row.
  *
  * Archived rows (`type: 'session'`) and the headings above them are left alone
  * — they are already a flat, date-grouped tail that the caller appends.
  */
 export function buildFlatSessionRows(
     items: readonly SessionListViewItem[],
-    options: { sortByActivity: boolean },
 ): FlatSessionRowData[] {
     const rows: FlatSessionRowData[] = [];
 
@@ -43,21 +38,21 @@ export function buildFlatSessionRows(
             for (const session of workspace.sessions) {
                 rows.push({
                     session,
-                    projectName: item.project.name,
+                    directoryName: directoryNameFromPath(
+                        session.path,
+                        directoryNameFromPath(workspace.id, item.project.name),
+                    ),
                     workspaceName: workspace.name ?? (workspace.id || null),
                 });
             }
         }
     }
 
-    const sortKey = options.sortByActivity
-        ? (row: FlatSessionRowData) => row.session.lastActivityAt
-        : (row: FlatSessionRowData) => row.session.createdAt;
-
-    return rows.sort((a, b) => {
-        const activeDelta = Number(b.session.active) - Number(a.session.active);
-        return activeDelta !== 0 ? activeDelta : sortKey(b) - sortKey(a);
-    });
+    return rows.sort((a, b) => (
+        compareInDictionaryOrder(a.directoryName, b.directoryName)
+        || compareInDictionaryOrder(a.session.path?.trim() ?? '', b.session.path?.trim() ?? '')
+        || compareInDictionaryOrder(a.session.id, b.session.id)
+    ));
 }
 
 /**
@@ -161,9 +156,12 @@ export function toFlatSessionRow(session: SessionRowData): FlatSessionRowData {
     const projectPath = worktree ? getRepoPath(path) : path;
     return {
         session,
-        projectName: session.projectName
-            ?? projectPath.split(/[\\/]/).filter(Boolean).at(-1)
-            ?? '',
+        directoryName: directoryNameFromPath(path, session.projectName ?? projectPath),
         workspaceName: session.workspaceName ?? (worktree ? getWorktreeName(path) : null),
     };
+}
+
+function directoryNameFromPath(path: string | null | undefined, fallback: string): string {
+    const directoryName = path?.trim().split(/[\\/]/).filter(Boolean).at(-1);
+    return directoryName || fallback.trim();
 }

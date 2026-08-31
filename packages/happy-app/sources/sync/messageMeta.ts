@@ -11,6 +11,12 @@ import {
     getRigSelectedModelKey,
     isRigMetadataV1,
 } from './rig';
+import {
+    getAvailableModels,
+    getDefaultEffortKeyForModel,
+    getDefaultModelKey,
+    getDefaultPermissionModeKey,
+} from '@/components/modelModeOptions';
 
 export type MessageModeMeta = {
     permissionMode?: PermissionModeKey;
@@ -40,6 +46,11 @@ export class UnsupportedPermissionModeError extends Error {
         this.cliVersion = cliVersion;
         Object.setPrototypeOf(this, UnsupportedPermissionModeError.prototype);
     }
+}
+
+function isSandboxEnabled(metadata: Session['metadata'] | null | undefined): boolean {
+    const sandbox = metadata?.sandbox;
+    return !!sandbox && typeof sandbox === 'object' && (sandbox as { enabled?: unknown }).enabled === true;
 }
 
 export function resolveMessageModeMeta(
@@ -102,7 +113,10 @@ export function resolveMessageModeMeta(
         const defaults = resolveAgentDefaultConfig(settings?.agentDefaultOverrides, flavor, cliVersion);
         meta.permissionMode = supported(retirePermissionMode(session.permissionMode ?? defaults.permissionMode));
 
-        const modelMode = session.modelMode ?? defaults.modelMode;
+        // Prefer the newest model the workspace advertises over the code
+        // default, matching what the composer's picker highlights by default.
+        const availableModels = getAvailableModels(flavor, session.metadata, (key) => String(key));
+        const modelMode = session.modelMode ?? agentOverrides.modelMode ?? getDefaultModelKey(flavor, availableModels);
         meta.model = modelMode === 'default' ? null : modelMode;
 
         meta.effort = session.effortLevel ?? defaults.effortLevel;
@@ -115,14 +129,30 @@ export function resolveMessageModeMeta(
         meta.permissionMode = supported(retirePermissionMode(session.permissionMode));
     } else if (agentOverrides.permissionMode !== undefined) {
         meta.permissionMode = supported(agentOverrides.permissionMode);
+    } else {
+        const defaultPermissionMode = getDefaultPermissionModeKey(flavor);
+        meta.permissionMode = supported(isSandboxEnabled(session.metadata) && defaultPermissionMode === 'default'
+            ? 'bypassPermissions'
+            : defaultPermissionMode);
     }
 
-    const modelMode = session.modelMode ?? agentOverrides.modelMode;
-    if (modelMode !== undefined) {
+    const availableModels = getAvailableModels(flavor, session.metadata, (key) => String(key));
+    const hasSessionModelOverride = session.modelMode !== null && session.modelMode !== undefined;
+    const hasSettingsModelOverride = agentOverrides.modelMode !== undefined;
+    const defaultModelMode = agentOverrides.modelMode ?? getDefaultModelKey(flavor, availableModels);
+    const modelMode = session.modelMode ?? defaultModelMode;
+    const isExplicitModelReset = modelMode === 'default' && (hasSessionModelOverride || hasSettingsModelOverride);
+    const shouldSendModel = modelMode !== undefined && (modelMode !== 'default' || isExplicitModelReset);
+    if (shouldSendModel) {
         meta.model = modelMode === 'default' ? null : modelMode;
     }
 
-    const effort = session.effortLevel ?? agentOverrides.effortLevel;
+    // Effort flows through user-message meta: CLI runners read it on each turn
+    // and pass it through to the underlying agent SDK.
+    const resolvedEffort = session.effortLevel
+        ?? agentOverrides.effortLevel
+        ?? getDefaultEffortKeyForModel(flavor, modelMode ?? 'default');
+    const effort = resolvedEffort === 'default' ? null : resolvedEffort;
     if (effort !== undefined) {
         meta.effort = effort;
     }

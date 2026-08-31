@@ -338,7 +338,7 @@ export const CompactSessionRow = React.memo(({ session, selected, showBorder }: 
                 <View style={styles.sessionTitleRow}>
                     {renderLeadingIndicator()}
 
-                    <SessionFlavorBadge flavor={session.flavor} compact style={styles.sessionFlavorBadge} />
+                    <SessionFlavorBadge flavor={session.flavor} clientId={session.clientId} compact style={styles.sessionFlavorBadge} />
                     <Text
                         style={[
                             styles.sessionTitle,

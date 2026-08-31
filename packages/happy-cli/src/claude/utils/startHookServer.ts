@@ -59,6 +59,7 @@
 
 import { createServer, IncomingMessage, ServerResponse, Server } from 'node:http';
 import { logger } from '@/ui/logger';
+import type { ClaudeUsageSnapshot } from '@/api/types';
 
 /**
  * Data received from Claude's SessionStart hook
@@ -76,6 +77,8 @@ export interface SessionHookData {
 export interface HookServerOptions {
     /** Called when a session hook is received with a valid session ID */
     onSessionHook: (sessionId: string, data: SessionHookData) => void;
+    /** Called when Claude Code status line data reports usage fields */
+    onStatusLine?: (snapshot: ClaudeUsageSnapshot, data: unknown) => void;
 }
 
 export interface HookServer {
@@ -85,6 +88,70 @@ export interface HookServer {
     stop: () => void;
 }
 
+function finiteNumber(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T): T | undefined {
+    return Object.values(value).some(v => v !== undefined) ? value : undefined;
+}
+
+export function parseClaudeUsageSnapshot(data: unknown, updatedAt: number = Date.now()): ClaudeUsageSnapshot | null {
+    const root = objectValue(data);
+    const contextWindow = objectValue(root.context_window);
+    const currentUsage = objectValue(contextWindow.current_usage);
+    const rateLimits = objectValue(root.rate_limits);
+    const fiveHour = objectValue(rateLimits.five_hour);
+    const sevenDay = objectValue(rateLimits.seven_day);
+
+    const currentUsageSnapshot = compactObject({
+        inputTokens: finiteNumber(currentUsage.input_tokens),
+        outputTokens: finiteNumber(currentUsage.output_tokens),
+        cacheCreationInputTokens: finiteNumber(currentUsage.cache_creation_input_tokens),
+        cacheReadInputTokens: finiteNumber(currentUsage.cache_read_input_tokens),
+    });
+    const contextWindowSnapshot = compactObject({
+        usedPercentage: finiteNumber(contextWindow.used_percentage),
+        remainingPercentage: finiteNumber(contextWindow.remaining_percentage),
+        size: finiteNumber(contextWindow.context_window_size),
+        totalInputTokens: finiteNumber(contextWindow.total_input_tokens),
+        totalOutputTokens: finiteNumber(contextWindow.total_output_tokens),
+        currentUsage: currentUsageSnapshot,
+    });
+    const rateLimitSnapshot = compactObject({
+        fiveHour: compactObject({
+            usedPercentage: finiteNumber(fiveHour.used_percentage),
+            resetsAt: finiteNumber(fiveHour.resets_at),
+        }),
+        sevenDay: compactObject({
+            usedPercentage: finiteNumber(sevenDay.used_percentage),
+            resetsAt: finiteNumber(sevenDay.resets_at),
+        }),
+    });
+
+    if (!contextWindowSnapshot && !rateLimitSnapshot) {
+        return null;
+    }
+
+    return {
+        updatedAt,
+        contextWindow: contextWindowSnapshot,
+        rateLimits: rateLimitSnapshot,
+    };
+}
+
+async function readRequestBody(req: IncomingMessage): Promise<string> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+        chunks.push(chunk as Buffer);
+    }
+    return Buffer.concat(chunks).toString('utf-8');
+}
+
 /**
  * Start a dedicated HTTP server for receiving Claude session hooks
  * 
@@ -92,11 +159,10 @@ export interface HookServer {
  * @returns Promise resolving to the server instance with port info
  */
 export async function startHookServer(options: HookServerOptions): Promise<HookServer> {
-    const { onSessionHook } = options;
+    const { onSessionHook, onStatusLine } = options;
 
     return new Promise((resolve, reject) => {
         const server: Server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-            // Only handle POST to /hook/session-start
             if (req.method === 'POST' && req.url === '/hook/session-start') {
                 // Set timeout to prevent hanging if Claude doesn't close stdin
                 const timeout = setTimeout(() => {
@@ -107,13 +173,8 @@ export async function startHookServer(options: HookServerOptions): Promise<HookS
                 }, 5000);
 
                 try {
-                    const chunks: Buffer[] = [];
-                    for await (const chunk of req) {
-                        chunks.push(chunk as Buffer);
-                    }
+                    const body = await readRequestBody(req);
                     clearTimeout(timeout);
-                    
-                    const body = Buffer.concat(chunks).toString('utf-8');
                     logger.debug('[hookServer] Received session hook:', body);
 
                     let data: SessionHookData = {};
@@ -136,6 +197,42 @@ export async function startHookServer(options: HookServerOptions): Promise<HookS
                 } catch (error) {
                     clearTimeout(timeout);
                     logger.debug('[hookServer] Error handling session hook:', error);
+                    if (!res.headersSent) {
+                        res.writeHead(500).end('error');
+                    }
+                }
+                return;
+            }
+
+            if (req.method === 'POST' && req.url === '/hook/status-line') {
+                const timeout = setTimeout(() => {
+                    if (!res.headersSent) {
+                        logger.debug('[hookServer] Status line request timeout');
+                        res.writeHead(408).end('timeout');
+                    }
+                }, 5000);
+
+                try {
+                    const body = await readRequestBody(req);
+                    clearTimeout(timeout);
+                    logger.debug('[hookServer] Received status line data:', body);
+
+                    let data: unknown = {};
+                    try {
+                        data = JSON.parse(body);
+                    } catch (parseError) {
+                        logger.debug('[hookServer] Failed to parse status line data as JSON:', parseError);
+                    }
+
+                    const snapshot = parseClaudeUsageSnapshot(data);
+                    if (snapshot) {
+                        onStatusLine?.(snapshot, data);
+                    }
+
+                    res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok');
+                } catch (error) {
+                    clearTimeout(timeout);
+                    logger.debug('[hookServer] Error handling status line data:', error);
                     if (!res.headersSent) {
                         res.writeHead(500).end('error');
                     }
@@ -173,4 +270,3 @@ export async function startHookServer(options: HookServerOptions): Promise<HookS
         });
     });
 }
-

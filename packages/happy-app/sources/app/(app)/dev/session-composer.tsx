@@ -317,7 +317,7 @@ function SessionComposerDemo() {
         const permIdx = permissionModes.findIndex(m => m.key === defaultPermKey);
         setPermissionIndex(permIdx >= 0 ? permIdx : 0);
 
-        const defaultModelKey = getDefaultModelKey(selectedAgent);
+        const defaultModelKey = getDefaultModelKey(selectedAgent, modelModes);
         const modelIdx = modelModes.findIndex(m => m.key === defaultModelKey);
         setModelIndex(modelIdx >= 0 ? modelIdx : 0);
 

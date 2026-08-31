@@ -13,7 +13,7 @@ export type FlatSessionRowStatusDot =
  * Splits the flat row's two progress signals: active work is carried by the
  * title shimmer, while the session's own state is a small dot on the metadata
  * line. Blue breathes while the agent runs, orange breathes while it is
- * blocked, and green settles once there is an unread result — and only then;
+ * blocked, and green settles once a locally-synced unread result is ready — and only then;
  * the dot disappears as soon as the session has been read, so a list of
  * seen-and-idle sessions carries no dots at all. The same language the old
  * project-card list spoke, shrunk to sit next to the draft and git badges.

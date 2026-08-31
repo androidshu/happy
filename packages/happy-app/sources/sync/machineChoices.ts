@@ -168,7 +168,9 @@ export function machineChoiceAgentVisible(
     choice: MachineChoice | null,
     agent: NewSessionAgentType,
 ): boolean {
-    return (agent !== 'agy' && agent !== 'rig') || machineChoiceAgentAvailable(choice, agent);
+    // Antigravity and Qoder stay absent until the machine's daemon reports
+    // their CLI installed; an old happy-cli cannot spawn them.
+    return (agent !== 'agy' && agent !== 'qoder' && agent !== 'rig') || machineChoiceAgentAvailable(choice, agent);
 }
 
 /**

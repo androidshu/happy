@@ -324,6 +324,37 @@ export type AgentCommunication = z.infer<typeof AgentCommunicationSchema>;
 export type AgentQuestionAnswer = z.infer<typeof AgentQuestionAnswerSchema>;
 export type CompletedAgentCommunication = z.infer<typeof CompletedAgentCommunicationSchema>;
 
+export const ClaudeUsageSnapshotSchema = z.object({
+    updatedAt: z.number(),
+    contextWindow: z.object({
+        usedPercentage: z.number().optional(),
+        remainingPercentage: z.number().optional(),
+        size: z.number().optional(),
+        totalInputTokens: z.number().optional(),
+        totalOutputTokens: z.number().optional(),
+        currentUsage: z.object({
+            inputTokens: z.number().optional(),
+            outputTokens: z.number().optional(),
+            cacheCreationInputTokens: z.number().optional(),
+            cacheReadInputTokens: z.number().optional(),
+        }).optional(),
+    }).optional(),
+    rateLimits: z.object({
+        fiveHour: z.object({
+            usedPercentage: z.number().optional(),
+            resetsAt: z.number().optional(),
+            status: z.enum(['allowed', 'allowed_warning', 'rejected']).optional(),
+        }).optional(),
+        sevenDay: z.object({
+            usedPercentage: z.number().optional(),
+            resetsAt: z.number().optional(),
+            status: z.enum(['allowed', 'allowed_warning', 'rejected']).optional(),
+        }).optional(),
+    }).optional(),
+});
+
+export type ClaudeUsageSnapshot = z.infer<typeof ClaudeUsageSnapshotSchema>;
+
 export const AgentStateSchema = z.object({
     controlledByUser: z.boolean().nullish(),
     // Ephemeral runtime state. A malformed snapshot must not invalidate
@@ -332,6 +363,7 @@ export const AgentStateSchema = z.object({
     // Pending agent-to-user communications, keyed by request id.
     communications: z.record(z.string(), AgentCommunicationSchema).nullish(),
     completedCommunications: z.record(z.string(), CompletedAgentCommunicationSchema).nullish(),
+    claudeUsage: ClaudeUsageSnapshotSchema.nullish(),
     requests: z.record(z.string(), z.object({
         tool: z.string(),
         arguments: z.any(),

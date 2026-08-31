@@ -10,6 +10,7 @@ export const HARNESS_NAMES: Record<NewSessionAgentType, string> = {
     codex: 'Codex',
     rig: 'Happy',
     agy: 'Antigravity',
+    qoder: 'Qoder',
     gemini: 'Gemini',
     openclaw: 'OpenClaw',
 };
@@ -32,6 +33,7 @@ export const RETIRED_HARNESSES: ReadonlySet<NewSessionAgentType> = new Set([
 export const HARNESS_ORDER: readonly NewSessionAgentType[] = [
     'claude',
     'codex',
+    'qoder',
     'agy',
     'rig',
 ];
@@ -65,6 +67,9 @@ export function isHarnessAvailable({
     // Antigravity is niche enough that an old or incomplete capability report
     // must not advertise it speculatively. Its daemon has to say it is installed.
     if (key === 'agy') return availability?.agy === true;
+    // Same rule for Qoder: only offer it once the machine's daemon reports the
+    // CLI, so an old happy-cli cannot advertise a harness it cannot spawn.
+    if (key === 'qoder') return availability?.qoder === true;
     return !availability || availability[key] === true;
 }
 
@@ -90,10 +95,12 @@ export function listAvailableHarnesses({
     selected?: NewSessionAgentType | null;
 }): HarnessOption[] {
     const keys = HARNESS_ORDER.filter((key) => (
-        (key === selected && key !== 'agy')
+        // Antigravity and Qoder only ever appear on an explicit installation
+        // report — not even as the current selection.
+        (key === selected && key !== 'agy' && key !== 'qoder')
         || isHarnessAvailable({ availability, happyAgentAvailable, key })
     ));
-    const fallback = HARNESS_ORDER.filter((key) => key !== 'agy');
+    const fallback = HARNESS_ORDER.filter((key) => key !== 'agy' && key !== 'qoder');
     return (keys.length > 0 ? keys : fallback).map((key) => ({
         key,
         name: HARNESS_NAMES[key],

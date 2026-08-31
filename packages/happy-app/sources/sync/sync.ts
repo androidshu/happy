@@ -26,7 +26,13 @@ import * as Notifications from 'expo-notifications';
 import { syncCurrentPushToken } from './pushRegistration';
 import { Platform, AppState, type AppStateStatus } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
-import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
+import {
+    extractSessionLifecycleUpdate,
+    NormalizedMessage,
+    normalizeRawMessage,
+    RawRecord,
+    type SessionLifecycleUpdate,
+} from './typesRaw';
 import { applySettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
 import { loadPendingSettings, savePendingSettings } from './persistence';
@@ -143,6 +149,7 @@ class Sync {
     private sendSync = new Map<string, InvalidateSync>();
     private sendAbortControllers = new Map<string, AbortController>();
     private sessionLastSeq = new Map<string, number>();
+    private sessionLifecycleSeq = new Map<string, number>();
     // Lowest seq value we have already fetched and applied for a session.
     // Used as the cursor for backward pagination when the user scrolls up to
     // load older history. Set after the initial latest-page fetch and
@@ -308,6 +315,7 @@ class Sync {
         configureReadStateHooks({
             onLocalUnread: pushSessionUnread,
             onLocalRead: pushSessionRead,
+            onUnreadContentNeeded: this.prefetchUnreadContent,
         });
         void fetchAndApplyUnreadStates();
 
@@ -370,6 +378,30 @@ class Sync {
         }
         return sync;
     }
+
+    private applyDurableSessionLifecycle(
+        session: Session,
+        lifecycle: SessionLifecycleUpdate,
+        seq: number,
+    ): Session {
+        const appliedSeq = this.sessionLifecycleSeq.get(session.id);
+        if (appliedSeq !== undefined && seq <= appliedSeq) {
+            return session;
+        }
+        this.sessionLifecycleSeq.set(session.id, seq);
+        return {
+            ...session,
+            thinking: lifecycle.thinking,
+            thinkingAt: lifecycle.at,
+        };
+    }
+
+    private prefetchUnreadContent = (sessionId: string): void => {
+        void this.getMessagesSync(sessionId).invalidateAndAwait()
+            .then(() => {
+                storage.getState().markUnreadContentReady(sessionId);
+            });
+    };
 
     private getSendSync(sessionId: string): InvalidateSync {
         let sync = this.sendSync.get(sessionId);
@@ -2280,17 +2312,33 @@ class Sync {
     private applyFetchedMessages = async (
         sessionId: string,
         encryption: ReturnType<Encryption['getSessionEncryption']> & {},
-        messages: ApiMessage[]
+        messages: ApiMessage[],
+        updateLifecycle = true,
     ) => {
         if (messages.length === 0) return;
         const decryptedMessages = await encryption.decryptMessages(messages);
         const normalizedMessages: NormalizedMessage[] = [];
+        let latestLifecycle: { update: SessionLifecycleUpdate; seq: number } | null = null;
         for (let i = 0; i < decryptedMessages.length; i++) {
             const decrypted = decryptedMessages[i];
             if (!decrypted) continue;
+            if (updateLifecycle) {
+                const lifecycle = extractSessionLifecycleUpdate(decrypted.content);
+                if (lifecycle && (!latestLifecycle || messages[i].seq > latestLifecycle.seq)) {
+                    latestLifecycle = { update: lifecycle, seq: messages[i].seq };
+                }
+            }
             const normalized = normalizeRawMessage(decrypted.id, decrypted.localId, decrypted.createdAt, decrypted.content);
             if (normalized) {
                 normalizedMessages.push(normalized);
+            }
+        }
+        if (latestLifecycle) {
+            const session = storage.getState().sessions[sessionId];
+            if (session) {
+                this.applySessions([
+                    this.applyDurableSessionLifecycle(session, latestLifecycle.update, latestLifecycle.seq),
+                ]);
             }
         }
         if (normalizedMessages.length > 0) {
@@ -2339,7 +2387,9 @@ class Sync {
                 const data = await response.json() as V3GetSessionMessagesResponse;
                 const messages = Array.isArray(data.messages) ? data.messages : [];
 
-                await this.applyFetchedMessages(sessionId, encryption, messages);
+                // Historical pagination must never overwrite the current
+                // lifecycle with an older turn boundary.
+                await this.applyFetchedMessages(sessionId, encryption, messages, false);
 
                 let minSeq = beforeSeq;
                 for (const message of messages) {
@@ -2446,51 +2496,25 @@ class Sync {
                 if (decrypted) {
                     lastMessage = normalizeRawMessage(decrypted.id, decrypted.localId, decrypted.createdAt, decrypted.content);
 
-                    // Check for task lifecycle events to update thinking state
-                    // This ensures UI updates even if volatile activity updates are lost
-                    const rawContent = decrypted.content as {
-                        role?: string;
-                        content?: {
-                            type?: string;
-                            data?: {
-                                type?: string;
-                                ev?: { t?: string };
-                            }
-                        }
-                    } | null;
-                    const contentType = rawContent?.content?.type;
-                    const dataType = rawContent?.content?.data?.type;
-                    const sessionEventType = rawContent?.content?.data?.ev?.t;
-                    
-                    // Debug logging to trace lifecycle events
-                    if (dataType === 'task_complete' || dataType === 'turn_aborted' || dataType === 'task_started' || sessionEventType === 'turn-start' || sessionEventType === 'turn-end') {
-                        console.log(`🔄 [Sync] Lifecycle event detected: contentType=${contentType}, dataType=${dataType}, sessionEventType=${sessionEventType}`);
-                    }
-                    
-                    const isTaskComplete = 
-                        ((contentType === 'acp' || contentType === 'codex') && 
-                            (dataType === 'task_complete' || dataType === 'turn_aborted')) ||
-                        (contentType === 'session' && sessionEventType === 'turn-end');
-                    
-                    const isTaskStarted = 
-                        ((contentType === 'acp' || contentType === 'codex') && dataType === 'task_started') ||
-                        (contentType === 'session' && sessionEventType === 'turn-start');
-                    
-                    if (isTaskComplete || isTaskStarted) {
-                        console.log(`🔄 [Sync] Updating thinking state: isTaskComplete=${isTaskComplete}, isTaskStarted=${isTaskStarted}`);
-                    }
+                    const lifecycle = extractSessionLifecycleUpdate(decrypted.content);
 
                     // Update session
                     const session = storage.getState().sessions[updateData.body.sid];
                     if (session) {
-                        this.applySessions([{
+                        const updatedSession: Session = {
                             ...session,
                             updatedAt: updateData.createdAt,
                             seq: updateData.seq,
-                            // Update thinking state based on task lifecycle events
-                            ...(isTaskComplete ? { thinking: false } : {}),
-                            ...(isTaskStarted ? { thinking: true } : {})
-                        }])
+                        };
+                        this.applySessions([
+                            lifecycle
+                                ? this.applyDurableSessionLifecycle(
+                                    updatedSession,
+                                    lifecycle,
+                                    updateData.body.message.seq,
+                                )
+                                : updatedSession,
+                        ]);
                     } else {
                         // Fetch sessions again if we don't have this session
                         this.fetchSessions();
@@ -2537,6 +2561,7 @@ class Sync {
             this.sendSync.delete(sessionId);
             this.pendingOutbox.delete(sessionId);
             this.sessionLastSeq.delete(sessionId);
+            this.sessionLifecycleSeq.delete(sessionId);
             this.sessionOldestSeq.delete(sessionId);
             this.sessionMessageLocks.delete(sessionId);
             this.sessionMessageQueue.delete(sessionId);

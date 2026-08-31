@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createId } from '@paralleldrive/cuid2';
-import { normalizeRawMessage } from './typesRaw';
+import { extractSessionLifecycleUpdate, normalizeRawMessage } from './typesRaw';
 
 /**
  * WOLOG Content Normalization Tests
@@ -1850,6 +1850,30 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                 role: 'event',
                 content: { type: 'ready' }
             });
+        });
+
+        it('extracts durable lifecycle from the raw CLI session envelope shape', () => {
+            expect(extractSessionLifecycleUpdate({
+                role: 'session',
+                content: {
+                    id: 'env-start',
+                    time: 101,
+                    role: 'agent',
+                    turn: 'turn-lifecycle',
+                    ev: { t: 'turn-start' },
+                },
+            })).toEqual({ thinking: true, at: 101 });
+
+            expect(extractSessionLifecycleUpdate({
+                role: 'session',
+                content: {
+                    id: 'env-end',
+                    time: 202,
+                    role: 'agent',
+                    turn: 'turn-lifecycle',
+                    ev: { t: 'turn-end', status: 'completed' },
+                },
+            })).toEqual({ thinking: false, at: 202 });
         });
 
         it('normalizes file events with required size and optional image metadata', () => {

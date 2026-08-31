@@ -41,4 +41,16 @@ describe('CLI availability detection', () => {
 
     expect(detectCLIAvailability().agy).toBe(true);
   });
+
+  it('reports Qoder when either CLI entry point is on PATH', () => {
+    expect(detectCLIAvailability().qoder).toBe(false);
+
+    // The canonical binary the ACP runner launches is `qodercli`.
+    mockedExecSync.mockImplementation(((command: string) => {
+      if (String(command).includes('qodercli')) return '';
+      throw new Error('not installed');
+    }) as never);
+
+    expect(detectCLIAvailability().qoder).toBe(true);
+  });
 });

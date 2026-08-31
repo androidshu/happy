@@ -239,6 +239,29 @@ describe('ApiSessionClient v3 messages API migration', () => {
         }));
     });
 
+    it('sends state transitions reliably and leaves repeat heartbeats volatile', () => {
+        const client = new ApiSessionClient('fake-token', session);
+
+        client.keepAlive(false, 'remote');
+        mockSocket.emit.mockClear();
+        mockSocket.volatile.emit.mockClear();
+
+        client.keepAlive(true, 'remote');
+        expect(mockSocket.emit).toHaveBeenCalledWith('session-alive', expect.objectContaining({
+            thinking: true,
+            mode: 'remote',
+        }));
+        expect(mockSocket.volatile.emit).not.toHaveBeenCalled();
+
+        mockSocket.emit.mockClear();
+        client.keepAlive(true, 'remote');
+        expect(mockSocket.emit).not.toHaveBeenCalled();
+        expect(mockSocket.volatile.emit).toHaveBeenCalledWith('session-alive', expect.objectContaining({
+            thinking: true,
+            mode: 'remote',
+        }));
+    });
+
     it('queues codex message to v3 outbox, sends once, and drains outbox', async () => {
         const client = new ApiSessionClient('fake-token', session);
         mockAxiosPost.mockResolvedValueOnce({

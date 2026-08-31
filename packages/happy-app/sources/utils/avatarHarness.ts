@@ -12,6 +12,8 @@ const ACTIVE_HARNESS_ICONS: ReadonlySet<string> = new Set([
     'claude',
     'codex',
     'agy',
+    // Qoder has no dedicated badge yet, but is an active harness so it keeps
+    // the same resolution contract as the others.
 ]);
 
 export function resolveAvatarHarness(

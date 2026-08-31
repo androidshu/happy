@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
     updateAgentState: vi.fn((handler: (state: Record<string, unknown>) => Record<string, unknown>) => {
       handler({});
     }),
+    getAgentState: vi.fn(() => ({})),
     rpcHandlerManager: {
       registerHandler: vi.fn((name: string, handler: (params: any) => Promise<any> | any) => {
         sessionHandlers.set(name, handler);

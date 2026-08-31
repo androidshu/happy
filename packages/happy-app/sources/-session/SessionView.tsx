@@ -9,6 +9,7 @@ import { layout } from '@/components/layout';
 import {
     getAvailableModels,
     getAvailablePermissionModes,
+    getDefaultModelKey,
     getEffortLevelsForModel,
     getRigCurrentModelOptionKey,
     resolveCurrentOption,
@@ -742,8 +743,9 @@ export function SessionViewLoaded({
             session.modelMode,
             isRig ? getRigCurrentModelOptionKey(session.metadata) : effectiveAgentDefaults.modelMode,
             isRig ? undefined : session.metadata?.currentModelCode,
+            getDefaultModelKey(flavor, availableModels),
         ])
-    ), [availableModels, session.modelMode, effectiveAgentDefaults.modelMode, session.metadata, isRig]);
+    ), [availableModels, session.modelMode, effectiveAgentDefaults.modelMode, session.metadata, isRig, flavor]);
 
     // Effort level state
     const modelKey = modelMode?.key ?? 'default';
@@ -918,6 +920,26 @@ export function SessionViewLoaded({
         return null;
     }, [gitStatus?.unstagedLinesAdded, gitStatus?.unstagedLinesRemoved, session.metadata]);
 
+    const claudeUsageStatus = React.useMemo(() => {
+        if (flavor !== 'claude') return undefined;
+        const claudeUsage = session.agentState?.claudeUsage;
+        if (!claudeUsage) return undefined;
+        const contextUsedPercent = claudeUsage.contextWindow?.usedPercentage
+            ?? (claudeUsage.contextWindow?.remainingPercentage !== undefined
+                ? 100 - claudeUsage.contextWindow.remainingPercentage
+                : undefined);
+        const fiveHour = claudeUsage.rateLimits?.fiveHour;
+        const sevenDay = claudeUsage.rateLimits?.sevenDay;
+        return {
+            contextUsedPercent,
+            contextWindowSize: claudeUsage.contextWindow?.size,
+            fiveHourUsedPercent: fiveHour?.usedPercentage,
+            fiveHourStatus: fiveHour?.status,
+            weeklyUsedPercent: sevenDay?.usedPercentage,
+            weeklyStatus: sevenDay?.status,
+        };
+    }, [flavor, session.agentState?.claudeUsage]);
+
     const visibleAgentGoal = React.useMemo(() => (
         resolveVisibleAgentGoalStatus(session)
     ), [
@@ -1091,6 +1113,7 @@ export function SessionViewLoaded({
                 autocompletePrefixes={AGENT_INPUT_AUTOCOMPLETE_PREFIXES}
                 autocompleteSuggestions={handleAutocompleteSuggestions}
                 usageData={usageData}
+                claudeUsageStatus={claudeUsageStatus}
                 alwaysShowContextSize={alwaysShowContextSize}
                 zenMode={zenMode}
                 showStatusDetails={showBottomDockDetails}

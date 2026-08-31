@@ -113,6 +113,24 @@ describe('applyRemoteReadStateChanges', () => {
         expect(applyRemoteUnreadStates).toHaveBeenCalledWith({ add: ['a'], remove: [] });
     });
 
+    it('ignores the echo of a locally-pushed completion', async () => {
+        kvMutate.mockResolvedValue({ success: true, results: [{ key: 'session-read.a', version: 1 }] });
+        pushSessionUnread('a', 2000);
+        await flushWrites();
+
+        applyRemoteReadStateChanges([{ key: 'session-read.a', value: encodeCompletedAt(2000), version: 1 }]);
+
+        expect(applyRemoteUnreadStates).toHaveBeenCalledWith({ add: [], remove: [] });
+    });
+
+    it('applies a newer completion even while the session is already unread', () => {
+        applyRemoteReadStateChanges([{ key: 'session-read.a', value: encodeCompletedAt(2000), version: 1 }]);
+        applyRemoteReadStateChanges([{ key: 'session-read.a', value: encodeCompletedAt(3000), version: 2 }]);
+
+        expect(applyRemoteUnreadStates).toHaveBeenNthCalledWith(1, { add: ['a'], remove: [] });
+        expect(applyRemoteUnreadStates).toHaveBeenNthCalledWith(2, { add: ['a'], remove: [] });
+    });
+
     it('ignores a stale marker that a local read already superseded', async () => {
         saveSessionReadTombstones({ a: 3000 });
         kvMutate.mockResolvedValue({ success: true, results: [{ key: 'session-read.a', version: 2 }] });
@@ -179,5 +197,20 @@ describe('pushSessionUnread', () => {
 
         const { loadSessionReadTombstones } = await import('./persistence');
         expect(loadSessionReadTombstones().a).toBeUndefined();
+    });
+
+    it('gives consecutive completions a monotonic revision', async () => {
+        kvMutate.mockResolvedValue({ success: true, results: [{ key: 'session-read.a', version: 1 }] });
+
+        pushSessionUnread('a', 2000);
+        pushSessionUnread('a', 2000);
+        await flushWrites();
+
+        expect(kvMutate).toHaveBeenNthCalledWith(1, credentials, [
+            { key: 'session-read.a', value: encodeCompletedAt(2000), version: -1 },
+        ]);
+        expect(kvMutate).toHaveBeenNthCalledWith(2, credentials, [
+            { key: 'session-read.a', value: encodeCompletedAt(2001), version: -1 },
+        ]);
     });
 });

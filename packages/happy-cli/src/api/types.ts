@@ -202,12 +202,15 @@ export const MessageMetaSchema = z.object({
   // Each harness validates the value itself and falls back with a warning.
   permissionMode: z.string().optional(), // Permission mode for this message
   model: z.string().nullable().optional(), // Model name for this message (null = reset)
+  // Any string is accepted (same rationale as permissionMode): each harness
+  // validates the effort value itself and falls back with a warning. The key
+  // must exist here or Zod strips it before the harness reads it.
+  effort: z.string().nullable().optional(), // Effort level for this message (null = reset)
   fallbackModel: z.string().nullable().optional(), // Fallback model for this message (null = reset)
   customSystemPrompt: z.string().nullable().optional(), // Custom system prompt for this message (null = reset)
   appendSystemPrompt: z.string().nullable().optional(), // Append to system prompt for this message (null = reset)
   allowedTools: z.array(z.string()).nullable().optional(), // Allowed tools for this message (null = reset)
   disallowedTools: z.array(z.string()).nullable().optional(), // Disallowed tools for this message (null = reset)
-  effort: z.string().nullable().optional() // Effort level for this message (null = reset). happy-app sends this key; without it Zod strips the value before runClaude reads it.
 })
 
 export type MessageMeta = z.infer<typeof MessageMetaSchema>
@@ -405,6 +408,7 @@ export type AgentState = {
    * Apps must tolerate window ids they don't recognize.
    */
   usageLimits?: UsageLimits
+  claudeUsage?: ClaudeUsageSnapshot | null | undefined
   requests?: {
     [id: string]: {
       tool: string,
@@ -435,4 +439,33 @@ export type AgentState = {
     }
   }
   agentGoalStatus?: AgentGoalStatus
+}
+
+export type ClaudeUsageSnapshot = {
+  updatedAt: number
+  contextWindow?: {
+    usedPercentage?: number
+    remainingPercentage?: number
+    size?: number
+    totalInputTokens?: number
+    totalOutputTokens?: number
+    currentUsage?: {
+      inputTokens?: number
+      outputTokens?: number
+      cacheCreationInputTokens?: number
+      cacheReadInputTokens?: number
+    }
+  }
+  rateLimits?: {
+    fiveHour?: {
+      usedPercentage?: number
+      resetsAt?: number
+      status?: 'allowed' | 'allowed_warning' | 'rejected'
+    }
+    sevenDay?: {
+      usedPercentage?: number
+      resetsAt?: number
+      status?: 'allowed' | 'allowed_warning' | 'rejected'
+    }
+  }
 }

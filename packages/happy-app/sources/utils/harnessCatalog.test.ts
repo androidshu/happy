@@ -6,6 +6,7 @@ describe('harness catalog', () => {
     it('names Happy and Antigravity by product, not by CLI id', () => {
         expect(HARNESS_NAMES.rig).toBe('Happy');
         expect(HARNESS_NAMES.agy).toBe('Antigravity');
+        expect(HARNESS_NAMES.qoder).toBe('Qoder');
     });
 
     it('retires Gemini and OpenClaw only', () => {
@@ -18,15 +19,16 @@ describe('harness catalog', () => {
 
     it('lists only installed harnesses, in pick order', () => {
         const harnesses = listAvailableHarnesses({
-            availability: { claude: true, codex: true, agy: true },
+            availability: { claude: true, codex: true, agy: true, qoder: true },
             happyAgentAvailable: true,
             selected: 'claude',
         });
 
-        expect(harnesses.map((harness) => harness.key)).toEqual(['claude', 'codex', 'agy', 'rig']);
+        expect(harnesses.map((harness) => harness.key)).toEqual(['claude', 'codex', 'qoder', 'agy', 'rig']);
         expect(harnesses.map((harness) => harness.name)).toEqual([
             'Claude Code',
             'Codex',
+            'Qoder',
             'Antigravity',
             'Happy',
         ]);
@@ -91,6 +93,28 @@ describe('harness catalog', () => {
             happyAgentAvailable: false,
             selected: 'agy',
         }).map((harness) => harness.key)).toEqual(['claude', 'codex']);
+    });
+
+    // Same rule as Antigravity: an old daemon that reports no capability map
+    // must not cause the picker to offer a harness its spawn RPC cannot start.
+    it('never lists Qoder without an explicit installation report', () => {
+        expect(listAvailableHarnesses({
+            availability: { claude: true, qoder: false },
+            happyAgentAvailable: false,
+            selected: 'qoder',
+        }).map((harness) => harness.key)).toEqual(['claude']);
+
+        expect(listAvailableHarnesses({
+            availability: null,
+            happyAgentAvailable: false,
+            selected: 'qoder',
+        }).map((harness) => harness.key)).toEqual(['claude', 'codex']);
+
+        expect(listAvailableHarnesses({
+            availability: { claude: true, qoder: true },
+            happyAgentAvailable: false,
+            selected: 'claude',
+        }).map((harness) => harness.key)).toEqual(['claude', 'qoder']);
     });
 
     it('falls back to the whole catalog when a machine reports no capabilities', () => {

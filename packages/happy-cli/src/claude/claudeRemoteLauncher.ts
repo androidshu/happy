@@ -18,6 +18,7 @@ import { getToolName } from "./utils/getToolName";
 import { getAskUserQuestionToolCallIds } from "./utils/questionNotification";
 import { launchFailureMessage } from "./utils/launchFailureMessage";
 import { cleanupStdinAfterInk } from "@/utils/terminalStdinCleanup";
+import { claudeUsageSnapshotFromSdkMessage, mergeClaudeUsageSnapshot } from "./utils/claudeUsageSnapshot";
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
 interface PermissionsField {
@@ -140,6 +141,14 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
 
         // Write to message log
         formatClaudeMessageForInk(message, messageBuffer);
+
+        const claudeUsage = claudeUsageSnapshotFromSdkMessage(message);
+        if (claudeUsage) {
+            session.client.updateAgentState((currentState) => ({
+                ...currentState,
+                claudeUsage: mergeClaudeUsageSnapshot(currentState?.claudeUsage, claudeUsage),
+            }));
+        }
 
         // Track active tool calls
         if (message.type === 'assistant') {

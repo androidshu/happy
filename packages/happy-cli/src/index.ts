@@ -40,6 +40,11 @@ import { sanitizeSessionEnvironment } from './daemon/sessionEnvironment'
 (async () => {
   const args = process.argv.slice(2)
 
+  if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) {
+    console.log(`happy version: ${packageJson.version}`)
+    return
+  }
+
   // If --version is passed - do not log, its likely daemon inquiring about our version
   if (!args.includes('--version')) {
     logger.debug('Starting happy CLI with args: ', process.argv)
@@ -373,6 +378,13 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         }
         if (!customCommandMode && args[i] === '--verbose') {
           verbose = true;
+          continue;
+        }
+        // The daemon forwards this to the native runners; for ACP agents the
+        // runner manages remote mode itself, so consume and drop the flag
+        // instead of leaking it into the wrapped agent's argv.
+        if (!customCommandMode && args[i] === '--happy-starting-mode') {
+          ++i;
           continue;
         }
         if (args[i] === '--') {

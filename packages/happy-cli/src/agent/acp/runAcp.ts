@@ -436,16 +436,20 @@ type PendingTurn = {
   timeout: NodeJS.Timeout;
 };
 
-function resolveSessionFlavor(agentName: string): 'gemini' | 'opencode' | 'acp' {
+function resolveSessionFlavor(agentName: string): 'gemini' | 'opencode' | 'qoder' | 'acp' {
   if (agentName === 'gemini') {
     return 'gemini';
   }
   if (agentName === 'opencode') {
     return 'opencode';
   }
+  // Qoder gets its own flavor so the app can offer its permission modes and
+  // models instead of falling back to the Claude catalog.
+  if (agentName === 'qoder') {
+    return 'qoder';
+  }
   return 'acp';
 }
-
 export async function runAcp(opts: {
   credentials: Credentials;
   agentName: string;

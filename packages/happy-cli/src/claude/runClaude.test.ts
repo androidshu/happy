@@ -863,4 +863,30 @@ describe('runClaude remote JSONL scanner', () => {
         expect(harness.loopOptions.messageQueue.queue).toEqual([]);
         await harness.finish();
     });
+
+    it('queues the Claude model from mobile message metadata', async () => {
+        const harness = await startRemoteRunClaudeHarness();
+        const userMessageHandler = harness.sessionClient.onUserMessage.mock.calls[0][0];
+
+        await userMessageHandler({
+            content: { text: 'hello' },
+            meta: { model: 'claude-opus-4-8[1m]' },
+        });
+
+        expect(harness.loopOptions.messageQueue.queue[0].mode.model).toBe('claude-opus-4-8[1m]');
+        await harness.finish();
+    });
+
+    it('does not replace an omitted Claude model with the old opus alias', async () => {
+        const harness = await startRemoteRunClaudeHarness();
+        const userMessageHandler = harness.sessionClient.onUserMessage.mock.calls[0][0];
+
+        await userMessageHandler({
+            content: { text: 'hello' },
+            meta: {},
+        });
+
+        expect(harness.loopOptions.messageQueue.queue[0].mode.model).toBeUndefined();
+        await harness.finish();
+    });
 });

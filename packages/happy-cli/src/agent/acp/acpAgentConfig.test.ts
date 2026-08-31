@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { KNOWN_ACP_AGENTS, resolveAcpAgentConfig } from './acpAgentConfig';
 
 describe('KNOWN_ACP_AGENTS', () => {
-  it('defines built-in Gemini and OpenCode command mappings', () => {
+  it('defines built-in Gemini, OpenCode, and Qoder command mappings', () => {
     expect(KNOWN_ACP_AGENTS).toEqual({
       gemini: { command: 'gemini', args: ['--experimental-acp'] },
       opencode: { command: 'opencode', args: ['acp'] },
+      qoder: { command: 'qodercli', args: ['--acp'] },
     });
   });
 });
@@ -24,6 +25,22 @@ describe('resolveAcpAgentConfig', () => {
       agentName: 'opencode',
       command: 'opencode',
       args: ['acp', '--foo'],
+    });
+  });
+
+  it('resolves qoder to the qodercli ACP server command', () => {
+    expect(resolveAcpAgentConfig(['qoder'])).toEqual({
+      agentName: 'qoder',
+      command: 'qodercli',
+      args: ['--acp'],
+    });
+  });
+
+  it('appends extra CLI args for qoder aliases', () => {
+    expect(resolveAcpAgentConfig(['qoder', '-m', 'performance'])).toEqual({
+      agentName: 'qoder',
+      command: 'qodercli',
+      args: ['--acp', '-m', 'performance'],
     });
   });
 

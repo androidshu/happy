@@ -13,7 +13,7 @@ const VOICE_ONBOARDING_PROMPT_LOAD_COUNT_KEY = 'voice-onboarding-prompt-load-cou
 const VOICE_MESSAGE_COUNT_KEY = 'voice-message-count';
 const SESSION_READ_TOMBSTONES_KEY = 'session-read-tombstones-v1';
 
-export type NewSessionAgentType = 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy' | 'rig';
+export type NewSessionAgentType = 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy' | 'qoder' | 'rig';
 export type NewSessionSessionType = 'simple' | 'worktree';
 
 export interface NewSessionDraft {
@@ -193,7 +193,7 @@ export function loadNewSessionDraft(): NewSessionDraft | null {
         const input = typeof parsed.input === 'string' ? parsed.input : '';
         const selectedMachineId = typeof parsed.selectedMachineId === 'string' ? parsed.selectedMachineId : null;
         const selectedPath = typeof parsed.selectedPath === 'string' ? parsed.selectedPath : null;
-        const agentType: NewSessionAgentType = parsed.agentType === 'codex' || parsed.agentType === 'gemini' || parsed.agentType === 'openclaw' || parsed.agentType === 'agy' || parsed.agentType === 'rig'
+        const agentType: NewSessionAgentType = parsed.agentType === 'codex' || parsed.agentType === 'gemini' || parsed.agentType === 'openclaw' || parsed.agentType === 'agy' || parsed.agentType === 'qoder' || parsed.agentType === 'rig'
             ? parsed.agentType
             : 'claude';
         const permissionMode: PermissionModeKey | null = typeof parsed.permissionMode === 'string'

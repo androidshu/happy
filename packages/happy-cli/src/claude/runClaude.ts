@@ -59,12 +59,9 @@ export interface StartOptions {
 
 // No default permission mode. "Default" in the picker means "whatever this
 // harness is already configured to do", so the mode is left unset and Claude
-// applies its own settings. Substituting a value here — this used to be
-// 'yolo' — silently overrode every user's Claude config with full access.
-// The model works the same way: no default. This used to be 'opus', which
-// pinned every remote turn to the 200K model even when the user's own Claude
-// config (settings.json, ANTHROPIC_MODEL) said e.g. claude-opus-5[1m] (#1721).
-const DEFAULT_CLAUDE_EFFORT: 'low' | 'medium' | 'high' | 'xhigh' | 'max' = 'medium';
+// applies its own settings; the local YOLO preference is carried by the app-side
+// agent defaults instead. The model works the same way: no default.
+const DEFAULT_CLAUDE_EFFORT: 'low' | 'medium' | 'high' | 'xhigh' | 'max' = 'high';
 type ClaudeGoalCommand = NonNullable<ReturnType<typeof parseClaudeGoalActionParams>>;
 type PendingClaudeGoalAction = {
     command: ClaudeGoalCommand;
@@ -470,6 +467,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     // Variable to track current session instance (updated via onSessionReady callback)
     // Used by hook server to notify Session when Claude changes session ID
     let currentSession: Session | null = null;
+    let lastClaudeUsageSignature: string | null = null;
 
     // Start Hook server for receiving Claude session notifications
     const hookServer = await startHookServer({
@@ -499,6 +497,20 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                     currentSession.onSessionFound(sessionId);
                 }
             }
+        },
+        onStatusLine: (claudeUsage) => {
+            const signature = JSON.stringify({
+                contextWindow: claudeUsage.contextWindow,
+                rateLimits: claudeUsage.rateLimits,
+            });
+            if (signature === lastClaudeUsageSignature) {
+                return;
+            }
+            lastClaudeUsageSignature = signature;
+            session.updateAgentState((currentState) => ({
+                ...currentState,
+                claudeUsage,
+            }));
         }
     });
     logger.debug(`[START] Hook server started on port ${hookServer.port}`);

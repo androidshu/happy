@@ -43,6 +43,7 @@ import { getVoiceMessageCount, getVoiceOnboardingPromptLoadCount } from '@/sync/
 import { isRunningOnMac } from '@/utils/platform';
 import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/utils/responsive';
 import { resolveStatusBarGitBranch } from '@/utils/sessionStatusBar';
+import { createVoiceEchoFilter } from '@/utils/voiceEchoFilter';
 import { visibleRigGitLineChanges } from '@/utils/rigGitLineChanges';
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
@@ -585,6 +586,9 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
     }, [sessionId]);
     const inputHandleRef = React.useRef<MultiTextInputHandle>(null);
     const [message, setMessage] = React.useState(initialDraft);
+    // Per-session Android voice-IME echo guard: some IMEs re-commit the
+    // just-dictated text right after we clear the input on send.
+    const echoFilter = React.useMemo(() => createVoiceEchoFilter(), [sessionId]);
 
     const applyDraft = React.useCallback((text: string) => {
         inputHandleRef.current?.setTextAndSelection(text, { start: text.length, end: text.length });
@@ -594,19 +598,28 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
     const { clearDraft } = useDraft(sessionId, message, applyDraft);
 
     const handleChangeText = React.useCallback((text: string) => {
+        // Discard voice-IME echoes: near-duplicates of the just-sent message
+        // arriving right after the programmatic clear are not user input.
+        if (echoFilter.shouldDiscardEcho(text)) {
+            inputHandleRef.current?.setTextAndSelection('', { start: 0, end: 0 });
+            return;
+        }
         // Transition keeps the textarea responsive even when the draft
         // autosave / re-render takes longer than a frame.
         React.startTransition(() => setMessage(text));
-    }, []);
+    }, [echoFilter]);
 
     React.useImperativeHandle(composerHandleRef, () => ({
         getMessage: () => inputHandleRef.current?.getText() ?? '',
         clearMessage: () => {
+            // Arm the echo filter BEFORE clearing so the IME's trailing
+            // re-commit of the dictated text is recognized and dropped.
+            echoFilter.markSent(inputHandleRef.current?.getText() ?? '');
             inputHandleRef.current?.setTextAndSelection('', { start: 0, end: 0 });
             setMessage('');
             clearDraft();
         },
-    }), [clearDraft]);
+    }), [clearDraft, echoFilter]);
 
     return (
         <AgentInput

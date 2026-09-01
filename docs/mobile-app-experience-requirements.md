@@ -140,6 +140,38 @@ flat 会话列表一度丢失状态标识，用户无法区分闲置 / 运行中
 - 测试：`sources/sync/readStateSync.test.ts`（11 例：全量合并、墓碑决胜、
   事件增删、冲突重试等）。
 
+## 5. 语音输入发送后，输入法回声文本必须被自动丢弃
+
+**状态：已实现**
+
+### 背景
+
+Android 语音输入法（讯飞/百度/搜狗/Gboard 语音等）在发送按钮点击瞬间常仍处于
+composing 会话；app 程序化清空输入框后，IME 会把刚识别完的那段话再异步
+`commitText` 回填一次。用户看到：点发送 → 输入框空了 → 几乎同样的一段话又
+突然出现，只能手动删除。RN 没有公开 API 在清空前结束 IME composing 会话，
+原生 InputConnection 层改造代价高，故在文本变更层做防御。
+
+### 要求
+
+- 发送清空后的短时间窗口（3 秒）内，输入框新出现的文本若与刚发送内容
+  **去空白后字符相似度 ≥ 90% 且 ≥ 10 字**，判定为 IME 回声：立即清空并丢弃，
+  不进入草稿自动保存。
+- 窗口外、短文本、低相似度的输入一律不得拦截（防误伤真实输入）。
+- 回声可能分段回填：命中后窗口不提前关闭，后续片段继续拦截至窗口结束。
+
+### 实现要点
+
+- `sources/utils/voiceEchoFilter.ts`：`createVoiceEchoFilter({windowMs=3000,
+  minChars=10, threshold=0.9})`，`markSent` 记录刚发送文本（不足 10 字不布防），
+  `shouldDiscardEcho` 判定；相似度为字符多重集 Sørensen–Dice，两侧先去空白。
+- `sources/-session/SessionView.tsx` ChatComposer：filter 按 sessionId 隔离
+  （useMemo）；`clearMessage` 清空前 `markSent`；`handleChangeText` 命中回声时
+  `setTextAndSelection('')` 并直接 return（不触发 draft autosave）。
+- 覆盖所有发送入口（发送按钮 / Enter / 自动提交汇聚于 `clearMessage`）。
+- 新会话页（new/index.tsx）发送即离场，回填无实际影响，未接线。
+- 测试：`sources/utils/voiceEchoFilter.test.ts`（13 例）。
+
 ## 变更记录
 
 - 2026-08-27：建立本文件。条目 1（扫码回退）、2（状态指示）、3（字典序
@@ -147,3 +179,5 @@ flat 会话列表一度丢失状态标识，用户无法区分闲置 / 运行中
 - 2026-08-27：条目 4（未读跨设备同步）实现完成——复用账户 KV 存储
   （`session-read.` 前缀 key + `kv-batch-update` 实时事件 + MMKV 已读墓碑），
   服务端零改动；单测 11 例通过。
+- 2026-09-01：条目 5（语音输入回声防御）实现完成——发送后 3 秒内 ≥90%
+  相似且 ≥10 字的回填文本自动丢弃；单测 13 例通过。

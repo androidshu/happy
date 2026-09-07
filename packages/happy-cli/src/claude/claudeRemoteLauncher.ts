@@ -104,6 +104,12 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
 
     // Create permission handler
     const permissionHandler = new PermissionHandler(session);
+    const disposeMetadataModeUpdates = session.client.onMetadataUpdate((metadata) => {
+        if (typeof metadata.permissionMode === 'string') {
+            permissionHandler.handleModeChange(metadata.permissionMode as EnhancedMode['permissionMode']);
+            logger.debug(`[remote]: permission mode updated from session metadata to ${metadata.permissionMode}`);
+        }
+    });
 
     // Drop any permission requests left over in agent state from a
     // previous CLI process that died while a tool prompt was open. The
@@ -500,6 +506,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     } finally {
 
         // Clean up permission handler
+        disposeMetadataModeUpdates();
         permissionHandler.reset();
 
         // Reset Terminal

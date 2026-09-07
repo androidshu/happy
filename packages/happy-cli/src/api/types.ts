@@ -336,6 +336,10 @@ export type Metadata = {
   archivedBy?: string,
   archiveReason?: string,
   flavor?: string
+  /** App-selected live agent modes, synced through encrypted session metadata. */
+  permissionMode?: string | null
+  modelMode?: string | null
+  effortLevel?: string | null
   sandbox?: SandboxConfig | null
   dangerouslySkipPermissions?: boolean | null
   /** Lineage for sessions created via the fork / duplicate flow. */

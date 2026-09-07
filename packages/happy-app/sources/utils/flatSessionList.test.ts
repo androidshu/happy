@@ -13,6 +13,7 @@ function row(overrides: Partial<SessionRowData> & { id: string }): SessionRowDat
         providerKind: null,
         modelName: null,
         activitySummary: null,
+        gitBranch: null,
         gitChangedFiles: null,
         gitCountsExact: true,
         gitDeletions: null,

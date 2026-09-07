@@ -16,6 +16,12 @@ export function appendDaemonSpawnModeArgs(
   options: SpawnSessionOptions,
   agent: string,
 ): void {
+  if (agent === 'qoder') {
+    if (shouldForwardDaemonPermissionMode(agent, options.permissionMode)) {
+      args.push('--permission-mode', options.permissionMode);
+    }
+    return;
+  }
   if (agent !== 'claude' && agent !== 'codex') return;
 
   if (shouldForwardDaemonPermissionMode(agent, options.permissionMode)) {

@@ -58,10 +58,7 @@ const codeAgentDefaults: Record<AgentKey, AgentDefaultConfig> = {
     gemini: { permissionMode: 'default', modelMode: 'gemini-2.5-pro', effortLevel: null },
     openclaw: { permissionMode: 'default', modelMode: 'default', effortLevel: null },
     agy: { permissionMode: 'default', modelMode: 'Gemini 3.1 Pro (High)', effortLevel: null },
-    // Qoder's default permission mode is managed by the CLI itself (it asks
-    // through ACP and Happy relays the request); the model list mirrors the
-    // Qoder CLI's `--model` ids.
-    qoder: { permissionMode: 'default', modelMode: 'default', effortLevel: null },
+    qoder: { permissionMode: 'bypassPermissions', modelMode: 'default', effortLevel: null },
 };
 
 // `auto` first shipped in happy-cli 1.2.1-beta.2, for Claude and Codex alike.

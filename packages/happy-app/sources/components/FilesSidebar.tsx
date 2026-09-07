@@ -9,7 +9,7 @@ import Animated, {
     Easing,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { storage, useSessionGitStatus, useSessionGitStatusFiles, useSessionProjectFiles } from '@/sync/storage';
+import { storage, useSessionGitStatusFiles, useSessionProjectFiles } from '@/sync/storage';
 import { getGitStatusFiles, GitFileStatus } from '@/sync/gitStatusFiles';
 import { getProjectFiles, ProjectFile } from '@/sync/projectFiles';
 import { FileIcon } from '@/components/FileIcon';
@@ -81,6 +81,7 @@ interface FilesSidebarProps {
     onCreateSideChat: () => void;
     canCreateSideChat: boolean;
     creatingSideChat: boolean;
+    visible: boolean;
 }
 
 type FileNode<T = GitFileStatus> = {
@@ -218,6 +219,7 @@ export const FilesSidebar = React.memo<FilesSidebarProps>(({
     onCreateSideChat,
     canCreateSideChat,
     creatingSideChat,
+    visible,
 }) => {
     const router = useRouter();
     const { theme } = useUnistyles();
@@ -225,11 +227,11 @@ export const FilesSidebar = React.memo<FilesSidebarProps>(({
         typeof navigator === 'undefined' ? undefined : navigator
     ), []);
     const gitStatusFiles = useSessionGitStatusFiles(sessionId);
-    const gitStatus = useSessionGitStatus(sessionId);
 
     const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
 
     React.useEffect(() => {
+        if (!visible || activePanel !== 'changes') return;
         let cancelled = false;
         const pathKey = storage.getState().getSessionPathKey(sessionId);
         if (!pathKey) return;
@@ -240,7 +242,7 @@ export const FilesSidebar = React.memo<FilesSidebarProps>(({
             }
         })();
         return () => { cancelled = true; };
-    }, [sessionId, gitStatus?.lastUpdatedAt]);
+    }, [activePanel, sessionId, visible]);
 
     const handleFilePress = React.useCallback((file: GitFileStatus) => {
         if (file.status === 'deleted') return;
@@ -263,6 +265,10 @@ export const FilesSidebar = React.memo<FilesSidebarProps>(({
     const effectiveCollapsed = collapsed;
 
     const hasFiles = allFiles.length > 0;
+    const lineChanges = React.useMemo(() => allFiles.reduce((total, file) => ({
+        added: total.added + file.linesAdded,
+        removed: total.removed + file.linesRemoved,
+    }), { added: 0, removed: 0 }), [allFiles]);
 
     const toggleDir = React.useCallback((path: string) => {
         setCollapsed((prev) => {
@@ -426,13 +432,13 @@ export const FilesSidebar = React.memo<FilesSidebarProps>(({
                     ))}
                 </View>
                 <View style={styles.headerRight}>
-                    {activePanel === 'changes' && hasFiles && gitStatus && (gitStatus.linesAdded > 0 || gitStatus.linesRemoved > 0) ? (
+                    {activePanel === 'changes' && hasFiles && (lineChanges.added > 0 || lineChanges.removed > 0) ? (
                         <View style={styles.headerLineChanges}>
-                            {gitStatus.linesAdded > 0 && (
-                                <Text style={styles.headerAdded}>+{gitStatus.linesAdded}</Text>
+                            {lineChanges.added > 0 && (
+                                <Text style={styles.headerAdded}>+{lineChanges.added}</Text>
                             )}
-                            {gitStatus.linesRemoved > 0 && (
-                                <Text style={styles.headerRemoved}>-{gitStatus.linesRemoved}</Text>
+                            {lineChanges.removed > 0 && (
+                                <Text style={styles.headerRemoved}>-{lineChanges.removed}</Text>
                             )}
                         </View>
                     ) : null}
@@ -604,7 +610,6 @@ const AllFilesTab = React.memo(function AllFilesTab({
     const [isLoading, setIsLoading] = React.useState(false);
 
     const projectFiles = useSessionProjectFiles(sessionId);
-    const gitStatus = useSessionGitStatus(sessionId);
     const allFiles = projectFiles?.files ?? [];
 
     // Fetch project files into Zustand on mount
@@ -623,7 +628,7 @@ const AllFilesTab = React.memo(function AllFilesTab({
             }
         })();
         return () => { cancelled = true; };
-    }, [sessionId, gitStatus?.lastUpdatedAt]);
+    }, [sessionId]);
 
     const tree = React.useMemo(() => buildTree(allFiles), [allFiles]);
     const filteredTree = React.useMemo(

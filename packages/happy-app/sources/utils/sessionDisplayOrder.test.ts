@@ -23,6 +23,7 @@ function session(
         providerKind: null,
         modelName: null,
         activitySummary: null,
+        gitBranch: null,
         gitChangedFiles: null,
         gitCountsExact: true,
         gitDeletions: null,

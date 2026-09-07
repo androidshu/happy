@@ -75,6 +75,7 @@ import { Shaker, type ShakeInstance } from './Shaker';
 import { hapticsError } from './haptics';
 import { HARNESS_ORDER, getHarnessName } from '@/utils/harnessCatalog';
 import { getPermissionModeMenuLabel, getPermissionModeShortLabel } from '@/utils/permissionModeLabels';
+import { resolveNewSessionPermissionKey } from '@/utils/newSessionModeSelection';
 import { getRigMachineSessionCreation } from '@/sync/rigSessionCreation';
 import {
     MobileHeaderScrim,
@@ -658,6 +659,7 @@ export const HomeDock = React.memo(({
     const mountedRef = React.useRef(true);
     const focusAnimationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const nativeMenuOpenRef = React.useRef(false);
+    const permissionSelectionTouchedRef = React.useRef(false);
     const focusPresentation = useSharedValue(0);
     const [isFocused, setIsFocused] = React.useState(false);
     const [focusModeVisible, setFocusModeVisible] = React.useState(false);
@@ -914,11 +916,34 @@ export const HomeDock = React.memo(({
     // The code default last: when the saved and configured modes were both
     // filtered out for an old CLI, land there rather than on whichever mode
     // happens to lead the list.
-    const currentPermission = resolveOption(permissionOptions, [
+    const codeDefaultPermissionMode = rigCreation
+        ? null
+        : getCodeAgentDefaults(agentType, happyCliVersion).permissionMode;
+    const contextDefaultPermissionKey = resolveNewSessionPermissionKey(
+        permissionOptions,
+        null,
+        defaults.permissionMode,
+        false,
+        codeDefaultPermissionMode,
+    );
+    const currentPermissionKey = resolveNewSessionPermissionKey(
+        permissionOptions,
         permissionMode,
         defaults.permissionMode,
-        rigCreation ? null : getCodeAgentDefaults(agentType, happyCliVersion).permissionMode,
-    ]);
+        permissionSelectionTouchedRef.current,
+        codeDefaultPermissionMode,
+    );
+    const currentPermission = resolveOption(permissionOptions, [currentPermissionKey]);
+    React.useEffect(() => {
+        permissionSelectionTouchedRef.current = false;
+        if (contextDefaultPermissionKey) {
+            setPermissionMode(contextDefaultPermissionKey);
+        }
+    }, [agentType, contextDefaultPermissionKey, resolvedMachineId, setPermissionMode]);
+    const selectPermissionMode = React.useCallback((key: string) => {
+        permissionSelectionTouchedRef.current = true;
+        setPermissionMode(key);
+    }, [setPermissionMode]);
     const currentModel = resolveOption(modelOptions, [modelMode, defaults.modelMode]);
     const effortOptions = React.useMemo(
         () => rigCreation
@@ -1174,6 +1199,7 @@ export const HomeDock = React.memo(({
             : resolveAgentDefaultConfig(defaultOverrides, agent, happyCliVersion);
         // Choosing Happy Agent no longer moves the machine selection: the computer already covers
         // both daemons, and switching it under the person was what made the picker show two.
+        permissionSelectionTouchedRef.current = false;
         setAgentType(agent);
         setPermissionMode(nextDefaults.permissionMode);
         setModelMode(nextDefaults.modelMode);
@@ -1285,7 +1311,7 @@ export const HomeDock = React.memo(({
             return { title: t('agentInput.model.title'), options: modelOptions, selectedKey: currentModel?.key, onSelect: setModelMode };
         }
         if (setting === 'permission') {
-            return { title: t('agentInput.permissionMode.title'), options: permissionOptions, selectedKey: currentPermission?.key, onSelect: setPermissionMode };
+            return { title: t('agentInput.permissionMode.title'), options: permissionOptions, selectedKey: currentPermission?.key, onSelect: selectPermissionMode };
         }
         return { title: t('agentInput.effort.title'), options: effortOptions, selectedKey: currentEffort?.key, onSelect: setEffortLevel };
     };

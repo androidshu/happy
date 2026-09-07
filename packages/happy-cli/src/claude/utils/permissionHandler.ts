@@ -79,6 +79,48 @@ export class PermissionHandler {
                 logger.debug('Failed to sync permission mode via SDK:', err);
             });
         }
+
+        if (isClaudeBypassEquivalent(this.permissionMode)) {
+            this.approvePendingForBypassMode();
+        }
+    }
+
+    private approvePendingForBypassMode(): void {
+        const approvable = Array.from(this.pendingRequests.entries()).filter(([, pending]) => (
+            pending.toolName !== 'AskUserQuestion'
+            && pending.toolName !== 'exit_plan_mode'
+            && pending.toolName !== 'ExitPlanMode'
+        ));
+        if (approvable.length === 0) {
+            return;
+        }
+
+        for (const [id, pending] of approvable) {
+            this.pendingRequests.delete(id);
+            pending.resolve({
+                behavior: 'allow',
+                updatedInput: (pending.input as Record<string, unknown>) || {},
+            });
+        }
+
+        this.session.client.updateAgentState((currentState) => {
+            const requests = { ...(currentState.requests || {}) };
+            const completedRequests = { ...(currentState.completedRequests || {}) };
+            for (const [id] of approvable) {
+                const request = requests[id];
+                if (!request) continue;
+                delete requests[id];
+                completedRequests[id] = {
+                    ...request,
+                    completedAt: Date.now(),
+                    status: 'approved',
+                    mode: 'bypassPermissions',
+                };
+            }
+            return { ...currentState, requests, completedRequests };
+        });
+
+        logger.debug(`Auto-approved ${approvable.length} pending permission(s) after switching to bypass mode`);
     }
 
     /**

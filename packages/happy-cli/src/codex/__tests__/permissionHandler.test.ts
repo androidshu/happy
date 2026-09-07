@@ -65,6 +65,26 @@ describe('CodexPermissionHandler', () => {
         await expect(pending).resolves.toEqual({ decision: 'abort' });
     });
 
+    it('immediately approves an existing request when live mode switches to YOLO', async () => {
+        const { session, getState } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+
+        const pending = handler.handleToolCall(
+            'call_exec_live_yolo',
+            'Bash',
+            { command: 'pwd' },
+        );
+
+        handler.setPermissionModeAutoApproval(true);
+
+        await expect(pending).resolves.toEqual({ decision: 'approved' });
+        expect(getState().requests).toEqual({});
+        expect(getState().completedRequests.call_exec_live_yolo).toMatchObject({
+            status: 'approved',
+            decision: 'approved',
+        });
+    });
+
     it('does NOT auto-approve a crafted tool name containing change_title as substring', async () => {
         const { session } = createSessionMock();
         const handler = new CodexPermissionHandler(session as any);

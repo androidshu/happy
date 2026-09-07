@@ -8,7 +8,7 @@ import { type SessionState, formatPathRelativeToHome, vibingMessages, formatLast
 import { Avatar } from './Avatar';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
-import { useAllMachines, useSessionGitStatus } from '@/sync/storage';
+import { useAllMachines } from '@/sync/storage';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
@@ -37,26 +37,6 @@ interface ActiveSessionsGroupProps {
     selectedSessionId?: string;
 }
 
-/**
- * Hook to get git display info for a section header:
- * branch name, line changes, and worktree status.
- */
-function useSectionGitInfo(sessionId: string) {
-    const gitStatus = useSessionGitStatus(sessionId);
-
-    return React.useMemo(() => {
-        if (!gitStatus || gitStatus.lastUpdatedAt === 0) {
-            return { branch: null, linesAdded: 0, linesRemoved: 0, hasChanges: false };
-        }
-        return {
-            branch: gitStatus.branch,
-            linesAdded: gitStatus.unstagedLinesAdded,
-            linesRemoved: gitStatus.unstagedLinesRemoved,
-            hasChanges: gitStatus.unstagedLinesAdded > 0 || gitStatus.unstagedLinesRemoved > 0,
-        };
-    }, [gitStatus]);
-}
-
 // Section header: avatar | path + branch + tree icon + line changes | + button
 const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRowData; displayPath: string }) => {
     const styles = stylesheet;
@@ -73,9 +53,10 @@ const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRo
     const repoFolderName = repoPath.split(/[/\\]/).filter(Boolean).pop() || repoDisplayPath;
     const worktreeName = isWorktree ? getWorktreeName(sessionPath) : null;
 
-    const gitInfo = useSectionGitInfo(session.id);
-    const branchName = worktreeName || gitInfo.branch;
+    const branchName = worktreeName || session.gitBranch;
     const hasBranch = !!branchName;
+    const linesAdded = session.gitInsertions ?? 0;
+    const linesRemoved = session.gitDeletions ?? 0;
 
     const handleAdd = React.useCallback(() => {
         const machineId = session.machineId;
@@ -122,11 +103,11 @@ const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRo
                                 style={styles.worktreeIcon}
                             />
                         )}
-                        {gitInfo.linesAdded > 0 && (
-                            <Text style={styles.addedText}>+{gitInfo.linesAdded}</Text>
+                        {linesAdded > 0 && (
+                            <Text style={styles.addedText}>+{linesAdded}</Text>
                         )}
-                        {gitInfo.linesRemoved > 0 && (
-                            <Text style={styles.removedText}>-{gitInfo.linesRemoved}</Text>
+                        {linesRemoved > 0 && (
+                            <Text style={styles.removedText}>-{linesRemoved}</Text>
                         )}
                     </View>
                 )}

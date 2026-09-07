@@ -369,6 +369,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
 
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
       let verbose = false;
+      let permissionMode: string | undefined;
       const acpArgs: string[] = [];
       let customCommandMode = false;
       for (let i = 1; i < args.length; i++) {
@@ -378,6 +379,10 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         }
         if (!customCommandMode && args[i] === '--verbose') {
           verbose = true;
+          continue;
+        }
+        if (!customCommandMode && args[i] === '--permission-mode') {
+          permissionMode = args[++i];
           continue;
         }
         // The daemon forwards this to the native runners; for ACP agents the
@@ -401,6 +406,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         credentials,
         startedBy,
         verbose,
+        permissionMode,
         agentName: resolved.agentName,
         command: resolved.command,
         args: resolved.args,

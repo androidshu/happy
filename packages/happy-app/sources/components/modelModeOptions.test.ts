@@ -108,6 +108,7 @@ describe('modelModeOptions', () => {
         const models = getCodexModelModes();
         expect(models.map((model) => model.key)).toEqual([
             'gpt-5.6-sol',
+            'gpt-6-astra',
             'gpt-5.6-terra',
             'gpt-5.6-luna',
         ]);
@@ -120,11 +121,12 @@ describe('modelModeOptions', () => {
 
         expect(withCustom.map((model) => model.key)).toEqual([
             'gpt-5.6-sol',
+            'gpt-6-astra',
             'gpt-5.6-terra',
             'gpt-5.6-luna',
             'my-workspace-model',
         ]);
-        expect(models).toHaveLength(3);
+        expect(models).toHaveLength(4);
         expect(includeConfiguredModel('claude', models, 'my-workspace-model')).toBe(models);
     });
 
@@ -153,6 +155,8 @@ describe('modelModeOptions', () => {
         // publish ultra, luna does not. The difference is the whole point of
         // asking per model rather than per flavor.
         expect(getEffortLevelsForModel('codex', 'gpt-5.6-sol').map((level) => level.key))
+            .toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+        expect(getEffortLevelsForModel('codex', 'gpt-6-astra').map((level) => level.key))
             .toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
         expect(getEffortLevelsForModel('codex', 'gpt-5.6-terra').map((level) => level.key))
             .toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
@@ -186,12 +190,28 @@ describe('modelModeOptions', () => {
         expect(getDefaultEffortKey('codex')).toBe('high');
     });
 
-    it('defaults Codex to yolo, latest non-default model, and high effort', () => {
+    it('defaults Codex to yolo, GPT-5.6 Sol, and high effort', () => {
         const models = getCodexModelModes();
 
         expect(getDefaultPermissionModeKey('codex')).toBe('yolo');
         expect(getDefaultModelKey('codex', models)).toBe('gpt-5.6-sol');
         expect(getDefaultEffortKeyForModel('codex', 'gpt-5.6-sol')).toBe('high');
+    });
+
+    it('keeps GPT-5.6 Sol as the Happy default when a newer option leads the list', () => {
+        const models = [
+            { key: 'gpt-6-astra', name: 'GPT-6-Astra' },
+            { key: 'gpt-5.6-sol', name: 'GPT-5.6-Sol' },
+        ];
+
+        expect(getDefaultModelKey('codex', models)).toBe('gpt-5.6-sol');
+        expect(resolveNewSessionModelKey(
+            models,
+            'default',
+            'gpt-5.6-sol',
+            getDefaultModelKey('codex', models),
+            false,
+        )).toBe('gpt-5.6-sol');
     });
 
     it('defaults Claude effort to high', () => {

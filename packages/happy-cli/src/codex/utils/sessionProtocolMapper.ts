@@ -33,6 +33,44 @@ type CodexMapperResult = {
     envelopes: SessionEnvelope[];
 };
 
+export function startCodexSessionTurn(state: CodexTurnState): CodexMapperResult {
+    const startedSubagents = getStartedSubagents(state);
+    const activeSubagents = getActiveSubagents(state);
+    const providerSubagentToSessionSubagent = getProviderSubagentToSessionSubagent(state);
+    const subagentTitles = getSubagentTitles(state);
+    const collabReceiverThreadIdsByCall = getCollabReceiverThreadIdsByCall(state);
+    const collabToolByCall = getCollabToolByCall(state);
+
+    if (state.currentTurnId) {
+        return {
+            currentTurnId: state.currentTurnId,
+            startedSubagents,
+            activeSubagents,
+            providerSubagentToSessionSubagent,
+            subagentTitles,
+            collabReceiverThreadIdsByCall,
+            collabToolByCall,
+            envelopes: [],
+        };
+    }
+
+    const turnId = createId();
+    startedSubagents.clear();
+    activeSubagents.clear();
+    collabReceiverThreadIdsByCall.clear();
+    collabToolByCall.clear();
+    return {
+        currentTurnId: turnId,
+        startedSubagents,
+        activeSubagents,
+        providerSubagentToSessionSubagent,
+        subagentTitles,
+        collabReceiverThreadIdsByCall,
+        collabToolByCall,
+        envelopes: [createEnvelope('agent', { t: 'turn-start' }, { turn: turnId })],
+    };
+}
+
 type LegacyToolLikeMessage = {
     type: 'tool-call' | 'tool-call-result';
     callId: string;
@@ -943,22 +981,7 @@ export function mapCodexMcpMessageToSessionEnvelopes(message: Record<string, unk
     const collabToolByCall = getCollabToolByCall(state);
 
     if (type === 'task_started') {
-        const turnId = createId();
-        const turnStart = createEnvelope('agent', { t: 'turn-start' }, { turn: turnId });
-        startedSubagents.clear();
-        activeSubagents.clear();
-        collabReceiverThreadIdsByCall.clear();
-        collabToolByCall.clear();
-        return {
-            currentTurnId: turnId,
-            startedSubagents,
-            activeSubagents,
-            providerSubagentToSessionSubagent,
-            subagentTitles,
-            collabReceiverThreadIdsByCall,
-            collabToolByCall,
-            envelopes: [turnStart],
-        };
+        return startCodexSessionTurn(state);
     }
 
     if (type === 'task_complete' || type === 'turn_aborted') {

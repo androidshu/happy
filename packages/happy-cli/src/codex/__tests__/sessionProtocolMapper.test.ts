@@ -4,6 +4,7 @@ import {
     mapCodexMcpMessageToSessionEnvelopes,
     mapCodexProcessorMessageToSessionEnvelopes,
     mapCodexThreadToSessionEnvelopes,
+    startCodexSessionTurn,
 } from '../utils/sessionProtocolMapper';
 
 describe('mapCodexMcpMessageToSessionEnvelopes', () => {
@@ -23,6 +24,39 @@ describe('mapCodexMcpMessageToSessionEnvelopes', () => {
         }
         expect(ended.envelopes[0].turn).toBe(started.currentTurnId);
         expect(ended.currentTurnId).toBeNull();
+    });
+
+    it('starts a turn when Happy accepts a prompt and reuses it if task_started arrives', () => {
+        const accepted = startCodexSessionTurn({ currentTurnId: null });
+        expect(accepted.envelopes).toHaveLength(1);
+        expect(accepted.envelopes[0]).toMatchObject({
+            turn: accepted.currentTurnId,
+            ev: { t: 'turn-start' },
+        });
+
+        const providerStarted = mapCodexMcpMessageToSessionEnvelopes(
+            { type: 'task_started' },
+            {
+                currentTurnId: accepted.currentTurnId,
+                startedSubagents: accepted.startedSubagents,
+                activeSubagents: accepted.activeSubagents,
+                providerSubagentToSessionSubagent: accepted.providerSubagentToSessionSubagent,
+                subagentTitles: accepted.subagentTitles,
+                collabReceiverThreadIdsByCall: accepted.collabReceiverThreadIdsByCall,
+                collabToolByCall: accepted.collabToolByCall,
+            },
+        );
+        expect(providerStarted.currentTurnId).toBe(accepted.currentTurnId);
+        expect(providerStarted.envelopes).toEqual([]);
+
+        const reply = mapCodexMcpMessageToSessionEnvelopes(
+            { type: 'agent_message', message: 'visible on mobile' },
+            { currentTurnId: providerStarted.currentTurnId },
+        );
+        expect(reply.envelopes[0]).toMatchObject({
+            turn: accepted.currentTurnId,
+            ev: { t: 'text', text: 'visible on mobile' },
+        });
     });
 
     it('maps abort lifecycle with cancelled turn-end status', () => {

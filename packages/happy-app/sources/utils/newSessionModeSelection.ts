@@ -17,6 +17,24 @@ export function resolveSelectedOption<T>(options: readonly T[], index: number): 
     return options[index] ?? options[0] ?? null;
 }
 
+export function resolveNewSessionPermissionKey<T extends { key: string }>(
+    options: readonly T[],
+    selectedKey: string | null | undefined,
+    defaultKey: string | null | undefined,
+    selectionTouched: boolean,
+    fallbackKey?: string | null,
+): string | null {
+    const available = (key: string | null | undefined): key is string => (
+        !!key && options.some((option) => option.key === key)
+    );
+
+    if (selectionTouched && available(selectedKey)) return selectedKey;
+    if (available(defaultKey)) return defaultKey;
+    if (available(selectedKey)) return selectedKey;
+    if (available(fallbackKey)) return fallbackKey;
+    return options[0]?.key ?? null;
+}
+
 /**
  * Accent for permission modes that deviate from plain ask-first behaviour.
  * Returns null for the ambient `default` mode and for no selection at all.

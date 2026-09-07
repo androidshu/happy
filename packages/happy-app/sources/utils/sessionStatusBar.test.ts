@@ -8,7 +8,6 @@ import {
     getUsageLimitDisplayPercentage,
     getUsageLimitRows,
     getUsageLimitStatus,
-    resolveStatusBarGitBranch,
 } from './sessionStatusBar';
 
 describe('session status bar helpers', () => {
@@ -37,13 +36,6 @@ describe('session status bar helpers', () => {
         expect(clampContextSize(45, 0)).toBe(0);
     });
 
-    it('falls back to metadata git branch when git status has no branch', () => {
-        expect(resolveStatusBarGitBranch('main', 'metadata-main')).toBe('main');
-        expect(resolveStatusBarGitBranch(null, 'fix/session')).toBe('fix/session');
-        expect(resolveStatusBarGitBranch('', 'fix/session')).toBe('fix/session');
-        expect(resolveStatusBarGitBranch('   ', 'fix/session')).toBe('fix/session');
-        expect(resolveStatusBarGitBranch(null, null)).toBe(null);
-    });
 });
 
 

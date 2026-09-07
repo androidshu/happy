@@ -35,6 +35,19 @@ describe('daemon spawn mode arguments', () => {
     ]);
   });
 
+  it('forwards Qoder permission without leaking native-only model flags', () => {
+    const args: string[] = [];
+
+    appendDaemonSpawnModeArgs(args, {
+      directory: '/repo',
+      permissionMode: 'bypassPermissions',
+      modelMode: 'qmodel_latest',
+      effortLevel: 'high',
+    }, 'qoder');
+
+    expect(args).toEqual(['--permission-mode', 'bypassPermissions']);
+  });
+
   it('uses the same Codex default rule for resume launches', () => {
     expect(shouldForwardDaemonPermissionMode('codex', 'default')).toBe(true);
     expect(shouldForwardDaemonPermissionMode('claude', 'default')).toBe(false);

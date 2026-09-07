@@ -457,6 +457,7 @@ export async function runAcp(opts: {
   args: string[];
   startedBy?: 'daemon' | 'terminal';
   verbose?: boolean;
+  permissionMode?: string;
 }): Promise<void> {
   const verbose = opts.verbose === true;
   const sessionTag = randomUUID();
@@ -486,6 +487,8 @@ export async function runAcp(opts: {
 
   let session: ApiSessionClient;
   let permissionHandler: GenericAcpPermissionHandler;
+  let bindSessionModeUpdates: ((source: ApiSessionClient) => void) | null = null;
+  let disposeSessionModeUpdates: () => void = () => {};
   const { session: initialSession, reconnectionHandle } = setupOfflineReconnection({
     api,
     sessionTag,
@@ -497,6 +500,7 @@ export async function runAcp(opts: {
       if (permissionHandler) {
         permissionHandler.updateSession(newSession);
       }
+      bindSessionModeUpdates?.(newSession);
     },
   });
   session = initialSession;
@@ -522,7 +526,7 @@ export async function runAcp(opts: {
   permissionHandler.reset('Previous CLI process exited before responding');
   const sessionManager = new AcpSessionManager();
   const messageQueue = new MessageQueue2<AcpSwitchMode>((mode) => hashObject(mode));
-  let currentPermissionMode: string | undefined;
+  let currentPermissionMode: string | undefined = opts.permissionMode;
   let currentModel: string | null | undefined;
   let modeSelector: AcpConfigSelector | null = null;
   let modelSelector: AcpConfigSelector | null = null;
@@ -602,38 +606,38 @@ export async function runAcp(opts: {
     }
   };
 
-  const switchPermissionModeIfRequested = async (requestedMode: string): Promise<void> => {
+  const switchPermissionModeIfRequested = async (requestedMode: string): Promise<string | null> => {
     if (!requestedMode) {
-      return;
+      return null;
     }
 
     if (modeSelector) {
       const resolved = resolveRequestedCode(modeSelector.options, requestedMode);
       if (!resolved) {
         logger.debug(`[${opts.agentName}] Ignoring unknown ACP permission mode request: ${requestedMode}`);
-        return;
+        return null;
       }
       if (resolved === modeSelector.currentCode) {
-        return;
+        return resolved;
       }
       const switched = await backend.setSessionConfigOption(modeSelector.configId, resolved);
       if (switched) {
         modeSelector.currentCode = resolved;
-        return;
+        return resolved;
       }
     }
 
     if (!legacyModes) {
-      return;
+      return null;
     }
 
     const resolvedLegacyMode = resolveRequestedLegacyModeCode(legacyModes, requestedMode);
     if (!resolvedLegacyMode) {
       logger.debug(`[${opts.agentName}] Ignoring unknown ACP legacy mode request: ${requestedMode}`);
-      return;
+      return null;
     }
     if (resolvedLegacyMode === legacyModes.currentModeId) {
-      return;
+      return resolvedLegacyMode;
     }
 
     const switched = await backend.setSessionMode(resolvedLegacyMode);
@@ -642,8 +646,32 @@ export async function runAcp(opts: {
         ...legacyModes,
         currentModeId: resolvedLegacyMode,
       };
+      return resolvedLegacyMode;
     }
+    return null;
   };
+
+  const applyPermissionMode = async (requestedMode: string): Promise<void> => {
+    currentPermissionMode = requestedMode;
+    const appliedMode = await switchPermissionModeIfRequested(requestedMode);
+    if (!appliedMode) {
+      return;
+    }
+    const normalized = normalizeComparable(appliedMode);
+    permissionHandler.setPermissionModeAutoApproval(
+      normalized === 'yolo' || normalized === 'bypasspermissions',
+    );
+  };
+
+  bindSessionModeUpdates = (source) => {
+    disposeSessionModeUpdates();
+    disposeSessionModeUpdates = source.onMetadataUpdate((nextMetadata) => {
+      if (typeof nextMetadata.permissionMode === 'string') {
+        void applyPermissionMode(nextMetadata.permissionMode);
+      }
+    });
+  };
+  bindSessionModeUpdates(session);
 
   const switchModelIfRequested = async (requestedModel: string): Promise<void> => {
     if (!requestedModel) {
@@ -726,6 +754,9 @@ export async function runAcp(opts: {
 
         modeSelector = extractConfigSelector(configOptions, 'mode');
         modelSelector = extractConfigSelector(configOptions, 'model');
+        if (currentPermissionMode) {
+          void applyPermissionMode(currentPermissionMode);
+        }
         if (verbose) {
           if (modeSelector) {
             sawModes = true;
@@ -756,6 +787,9 @@ export async function runAcp(opts: {
       const modes = extractModeStateFromPayload(msg.payload);
       if (modes) {
         legacyModes = modes;
+        if (currentPermissionMode) {
+          void applyPermissionMode(currentPermissionMode);
+        }
         sawModes = true;
         if (verbose) {
           logAcp('muted', `Outgoing modes from ${opts.agentName} (${modes.availableModes.length}), current=${modes.currentModeId}:`);
@@ -919,7 +953,7 @@ export async function runAcp(opts: {
       const turnEnded = waitForTurnEnd();
       try {
         if (typeof batch.mode.permissionMode === 'string' && batch.mode.permissionMode.length > 0) {
-          await switchPermissionModeIfRequested(batch.mode.permissionMode);
+          await applyPermissionMode(batch.mode.permissionMode);
         }
         if (typeof batch.mode.model === 'string' && batch.mode.model.length > 0) {
           await switchModelIfRequested(batch.mode.model);
@@ -942,6 +976,7 @@ export async function runAcp(opts: {
   } finally {
     clearInterval(keepAliveInterval);
     reconnectionHandle?.cancel();
+    disposeSessionModeUpdates();
     clearPendingTurn(new Error('ACP runner shutting down'));
 
     try {

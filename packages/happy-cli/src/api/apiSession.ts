@@ -346,6 +346,7 @@ export class ApiSessionClient extends EventEmitter {
                     if (data.body.metadata && data.body.metadata.version > this.metadataVersion) {
                         this.metadata = decrypt(this.encryptionKey, this.encryptionVariant, decodeBase64(data.body.metadata.value));
                         this.metadataVersion = data.body.metadata.version;
+                        this.emit('metadata-updated', this.metadata);
                         // Check if session was archived from web/mobile
                         const meta = this.metadata as any;
                         if (meta?.lifecycleState === 'archiveRequested' || meta?.lifecycleState === 'archived') {
@@ -949,6 +950,11 @@ export class ApiSessionClient extends EventEmitter {
         return this.metadata;
     }
 
+    onMetadataUpdate(handler: (metadata: Metadata) => void): () => void {
+        this.on('metadata-updated', handler);
+        return () => this.off('metadata-updated', handler);
+    }
+
     /**
      * Update session metadata
      * @param handler - Handler function that returns the updated metadata
@@ -969,6 +975,7 @@ export class ApiSessionClient extends EventEmitter {
                 if (answer.result === 'success') {
                     this.metadata = decrypt(this.encryptionKey, this.encryptionVariant, decodeBase64(answer.metadata));
                     this.metadataVersion = answer.version;
+                    this.emit('metadata-updated', this.metadata);
                 } else if (answer.result === 'version-mismatch') {
                     if (answer.version > this.metadataVersion) {
                         this.metadataVersion = answer.version;

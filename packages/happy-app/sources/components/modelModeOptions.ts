@@ -148,6 +148,7 @@ export function getClaudeModelModes(): ModelMode[] {
 export function getCodexModelModes(): ModelMode[] {
     return [
         { key: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', description: null },
+        { key: 'gpt-6-astra', name: 'GPT-6-Astra', description: null },
         { key: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', description: null },
         { key: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', description: null },
     ];
@@ -500,6 +501,9 @@ function firstNonDefaultOptionKey(options: ModeOption[]): string | null {
 
 export function getDefaultModelKey(flavor: AgentFlavor, options: ModeOption[] = []): string {
     const configuredDefault = getCodeAgentDefaults(flavor).modelMode;
+    if (findOptionByKey(options, configuredDefault)) {
+        return configuredDefault;
+    }
     if ((flavor === 'codex' || flavor === 'gemini') && options.length > 0) {
         return firstNonDefaultOptionKey(options) ?? configuredDefault;
     }
@@ -556,6 +560,7 @@ const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 // two models accept, so the picker offers it rather than deciding for you.
 const CODEX_EFFORTS_BY_MODEL: Record<string, readonly string[]> = {
     'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+    'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
     'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
     'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
 };

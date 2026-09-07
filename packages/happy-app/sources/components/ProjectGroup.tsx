@@ -6,7 +6,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { ProjectGroupData, ProjectWorkspaceGroup, useSessionGitStatus } from '@/sync/storage';
+import { ProjectGroupData, ProjectWorkspaceGroup } from '@/sync/storage';
 import { CompactSessionRow } from './ActiveSessionsGroupCompact';
 import { Avatar } from './Avatar';
 import { requestHomeDockFocus } from './homeDockFocus';
@@ -61,25 +61,17 @@ const WorkspaceSection = React.memo(({ project, workspace, selectedSessionId }: 
     const firstSession = workspace.sessions[0];
     const worktreeName = workspace.name ?? (workspace.id || null);
 
-    // The branch line belongs to the checkout, so it reads from the live git
-    // status the daemon reports, through the workspace's own name, down to the
-    // "main" every repo has when nothing better is known.
-    const gitStatus = useSessionGitStatus(firstSession?.id ?? '');
     const branchName = worktreeName
-        ?? gitStatus?.branch
-        ?? 'main';
-    const liveInsertions = gitStatus?.unstagedLinesAdded ?? 0;
-    const liveDeletions = gitStatus?.unstagedLinesRemoved ?? 0;
-    const changes = liveInsertions > 0 || liveDeletions > 0
-        ? { approximate: false, insertions: liveInsertions, deletions: liveDeletions }
-        : firstSession && firstSession.gitChangedFiles !== null
-            ? visibleRigGitLineChanges({
-                changedFiles: firstSession.gitChangedFiles,
-                countsExact: firstSession.gitCountsExact,
-                deletions: firstSession.gitDeletions ?? 0,
-                insertions: firstSession.gitInsertions ?? 0,
-            })
-            : null;
+        ?? firstSession?.gitBranch
+        ?? null;
+    const changes = firstSession && firstSession.gitChangedFiles !== null
+        ? visibleRigGitLineChanges({
+            changedFiles: firstSession.gitChangedFiles,
+            countsExact: firstSession.gitCountsExact,
+            deletions: firstSession.gitDeletions ?? 0,
+            insertions: firstSession.gitInsertions ?? 0,
+        })
+        : null;
 
     // Point the draft at this exact checkout before opening the composer, so
     // the dock's machine, project and worktree rows already read correctly.
@@ -116,24 +108,28 @@ const WorkspaceSection = React.memo(({ project, workspace, selectedSessionId }: 
                     <Text style={styles.title} numberOfLines={1}>
                         {project.name}
                     </Text>
-                    <View style={styles.branchLine}>
-                        <Text style={styles.branchText} numberOfLines={1}>
-                            {branchName}
-                        </Text>
-                        {changes && (
-                            <View style={styles.branchChanges}>
-                                {changes.approximate && (
-                                    <Text style={styles.approximateText}>≈</Text>
-                                )}
-                                {changes.insertions > 0 && (
-                                    <Text style={styles.addedText}>+{compactCount(changes.insertions)}</Text>
-                                )}
-                                {changes.deletions > 0 && (
-                                    <Text style={styles.removedText}>-{compactCount(changes.deletions)}</Text>
-                                )}
-                            </View>
-                        )}
-                    </View>
+                    {(branchName || changes) && (
+                        <View style={styles.branchLine}>
+                            {branchName && (
+                                <Text style={styles.branchText} numberOfLines={1}>
+                                    {branchName}
+                                </Text>
+                            )}
+                            {changes && (
+                                <View style={styles.branchChanges}>
+                                    {changes.approximate && (
+                                        <Text style={styles.approximateText}>≈</Text>
+                                    )}
+                                    {changes.insertions > 0 && (
+                                        <Text style={styles.addedText}>+{compactCount(changes.insertions)}</Text>
+                                    )}
+                                    {changes.deletions > 0 && (
+                                        <Text style={styles.removedText}>-{compactCount(changes.deletions)}</Text>
+                                    )}
+                                </View>
+                            )}
+                        </View>
+                    )}
                 </View>
                 <Pressable
                     onPress={handleNewSession}

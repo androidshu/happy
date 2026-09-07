@@ -29,10 +29,11 @@ import { connectionState } from '@/utils/serverConnectionErrors';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
 import type { PermissionMode } from '@/api/types';
 import type { ApiSessionClient } from '@/api/apiSession';
-import { resolveCodexExecutionPolicy, shouldAutoApproveCodexApproval } from './executionPolicy';
+import { isRemoteCodexPermissionMode, resolveCodexExecutionPolicy, shouldAutoApproveCodexApproval } from './executionPolicy';
 import {
     mapCodexMcpMessageToSessionEnvelopes,
     mapCodexProcessorMessageToSessionEnvelopes,
+    startCodexSessionTurn,
 } from './utils/sessionProtocolMapper';
 import { resumeExistingThread } from './resumeExistingThread';
 import { emitReadyIfIdle } from './emitReadyIfIdle';
@@ -207,6 +208,8 @@ export async function runCodex(opts: {
     let client!: CodexAppServerClient;
     let reasoningProcessor!: ReasoningProcessor;
     let abortInProgress: Promise<void> | null = null;
+    let bindSessionModeUpdates: ((source: ApiSessionClient) => void) | null = null;
+    let disposeSessionModeUpdates: () => void = () => {};
     const { session: initialSession, reconnectionHandle } = setupOfflineReconnection({
         api,
         sessionTag,
@@ -219,6 +222,7 @@ export async function runCodex(opts: {
             if (permissionHandler) {
                 permissionHandler.updateSession(newSession);
             }
+            bindSessionModeUpdates?.(newSession);
         }
     });
     session = initialSession;
@@ -353,6 +357,29 @@ export async function runCodex(opts: {
     let codexCollabReceiverThreadIdsByCall = new Map<string, string[]>();
     let codexCollabToolByCall = new Map<string, string>();
     let activeTurnPermissionMode: PermissionMode | undefined = undefined;
+    const codexTurnState = () => ({
+        currentTurnId,
+        startedSubagents: codexStartedSubagents,
+        activeSubagents: codexActiveSubagents,
+        providerSubagentToSessionSubagent: codexProviderSubagentToSessionSubagent,
+        subagentTitles: codexSubagentTitles,
+        collabReceiverThreadIdsByCall: codexCollabReceiverThreadIdsByCall,
+        collabToolByCall: codexCollabToolByCall,
+    });
+    const applyCodexMapperResult = (
+        mapped: ReturnType<typeof mapCodexMcpMessageToSessionEnvelopes>,
+    ) => {
+        currentTurnId = mapped.currentTurnId;
+        codexStartedSubagents = mapped.startedSubagents;
+        codexActiveSubagents = mapped.activeSubagents;
+        codexProviderSubagentToSessionSubagent = mapped.providerSubagentToSessionSubagent;
+        codexSubagentTitles = mapped.subagentTitles;
+        codexCollabReceiverThreadIdsByCall = mapped.collabReceiverThreadIdsByCall;
+        codexCollabToolByCall = mapped.collabToolByCall;
+        for (const envelope of mapped.envelopes) {
+            session.sendSessionProtocolMessage(envelope);
+        }
+    };
     session.keepAlive(thinking, 'remote');
     // Periodic keep-alive; store handle so we can clear on exit
     const keepAliveInterval = setInterval(() => {
@@ -556,6 +583,24 @@ export async function runCodex(opts: {
     // process that died while a tool prompt was open — see the matching
     // call in claudeRemoteLauncher for the full rationale.
     permissionHandler.reset('Previous CLI process exited before responding');
+    bindSessionModeUpdates = (source) => {
+        disposeSessionModeUpdates();
+        disposeSessionModeUpdates = source.onMetadataUpdate((nextMetadata) => {
+            const requestedMode = nextMetadata.permissionMode;
+            if (!isRemoteCodexPermissionMode(requestedMode)) {
+                return;
+            }
+            const resolution = remoteModeState.resolve({ permissionMode: requestedMode });
+            permissionHandler.setPermissionModeAutoApproval(
+                shouldAutoApproveCodexApproval(resolution.permissionMode, client.sandboxEnabled),
+            );
+            logger.debug(`[Codex] Permission mode updated from session metadata to: ${resolution.permissionMode}`);
+        });
+    };
+    bindSessionModeUpdates(session);
+    permissionHandler.setPermissionModeAutoApproval(
+        shouldAutoApproveCodexApproval(initialPermissionMode, client.sandboxEnabled),
+    );
     reasoningProcessor = new ReasoningProcessor((message) => {
         const envelopes = mapCodexProcessorMessageToSessionEnvelopes(message, { currentTurnId });
         for (const envelope of envelopes) {
@@ -779,25 +824,7 @@ export async function runCodex(opts: {
             || msg.type === 'agent_reasoning_section_break';
         const isForwardableSubagentReasoning = isSubagentScopedEvent && msg.type === 'agent_reasoning';
         if (msg.type !== 'turn_diff' && (!isReasoningEvent || isForwardableSubagentReasoning)) {
-            const mapped = mapCodexMcpMessageToSessionEnvelopes(msg, {
-                currentTurnId,
-                startedSubagents: codexStartedSubagents,
-                activeSubagents: codexActiveSubagents,
-                providerSubagentToSessionSubagent: codexProviderSubagentToSessionSubagent,
-                subagentTitles: codexSubagentTitles,
-                collabReceiverThreadIdsByCall: codexCollabReceiverThreadIdsByCall,
-                collabToolByCall: codexCollabToolByCall,
-            });
-            currentTurnId = mapped.currentTurnId;
-            codexStartedSubagents = mapped.startedSubagents;
-            codexActiveSubagents = mapped.activeSubagents;
-            codexProviderSubagentToSessionSubagent = mapped.providerSubagentToSessionSubagent;
-            codexSubagentTitles = mapped.subagentTitles;
-            codexCollabReceiverThreadIdsByCall = mapped.collabReceiverThreadIdsByCall;
-            codexCollabToolByCall = mapped.collabToolByCall;
-            for (const envelope of mapped.envelopes) {
-                session.sendSessionProtocolMessage(envelope);
-            }
+            applyCodexMapperResult(mapCodexMcpMessageToSessionEnvelopes(msg, codexTurnState()));
         }
     });
 
@@ -1001,6 +1028,11 @@ export async function runCodex(opts: {
                     thinking = true;
                     session.keepAlive(thinking, 'remote');
                 }
+                // A prompt accepted by Happy is the authoritative turn start.
+                // Codex app-server can omit task_started for queued follow-ups;
+                // opening the protocol turn here ensures every later envelope
+                // carries the turn id required by mobile clients.
+                applyCodexMapperResult(startCodexSessionTurn(codexTurnState()));
                 const result = await client.sendTurnAndWait(turnPrompt, {
                     model: message.mode.model,
                     approvalPolicy: executionPolicy.approvalPolicy,
@@ -1045,6 +1077,7 @@ export async function runCodex(opts: {
         // Clean up resources when main loop exits
         logger.debug('[codex]: Final cleanup start');
         logActiveHandles('cleanup-start');
+        disposeSessionModeUpdates();
 
         // Cancel offline reconnection if still running
         if (reconnectionHandle) {

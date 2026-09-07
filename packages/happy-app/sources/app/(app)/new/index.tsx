@@ -90,7 +90,7 @@ import {
     completeSpawnRequest,
     resolveSpawnRequestId,
 } from '@/sync/spawnRequestId';
-import { resolvePermissionStyle, resolveSelectedOption } from '@/utils/newSessionModeSelection';
+import { resolveNewSessionPermissionKey, resolvePermissionStyle, resolveSelectedOption } from '@/utils/newSessionModeSelection';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 import { getNativeGlassInteractivity } from '@/components/glassInteractionPolicy';
 import { BubblePressable } from '@/components/BubblePressable';
@@ -753,7 +753,6 @@ function NewSessionScreen() {
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
     const zenMode = useLocalSetting('zenMode');
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-    const lastUsedPermissionMode = useSetting('lastUsedPermissionMode');
 
     // Persisted draft state (survives navigation).
     //
@@ -1078,72 +1077,38 @@ function NewSessionScreen() {
     const showEffort = effortLevels.length > 0;
     const showPermission = permissionModes.length > 1;
 
-    const machinePreferredPermissionModeKey = React.useMemo<string | null>(() => {
-        if (!selectedMachineId || !sessions) {
-            return null;
-        }
-
-        const recentSessions = sessions
-            .filter((item): item is Session => typeof item !== 'string')
-            .filter((session) => session.metadata?.machineId === selectedMachineId)
-            .filter((session) => getSessionAgentType(session) === selectedAgent)
-            .sort((a, b) => b.updatedAt - a.updatedAt);
-
-        for (const session of recentSessions) {
-            const candidateKeys = [session.permissionMode, session.metadata?.currentOperatingModeCode];
-            for (const key of candidateKeys) {
-                if (key && permissionModes.some((mode) => mode.key === key)) {
-                    return key;
-                }
-            }
-        }
-
-        return null;
-    }, [selectedMachineId, sessions, selectedAgent, permissionModes]);
-
     React.useEffect(() => {
         permissionSelectionTouchedRef.current = false;
         modelSelectionTouchedRef.current = false;
     }, [selectedAgent, selectedMachineId]);
 
-    // Reset permission index when context changes:
-    // 1) honor explicit draft choice
-    // 2) otherwise follow machine's recent session mode (desktop startup behavior)
-    // 3) fallback to last used setting
-    // 4) fallback to configured agent default
+    // A fresh agent/computer context starts from its configured default.
+    // Only a choice made in the current context may override it.
     React.useEffect(() => {
-        const draftPermIdx = permissionModes.findIndex(m => m.key === draft.permissionMode);
-        const defaultPermIdx = permissionModes.findIndex(m => m.key === effectiveAgentDefaults.permissionMode);
-        const lastUsedPermIdx = lastUsedPermissionMode
-            ? permissionModes.findIndex(m => m.key === lastUsedPermissionMode)
-            : -1;
-
-        const preferredPermissionKey =
-            (permissionSelectionTouchedRef.current && draftPermIdx >= 0 ? draft.permissionMode : null)
-            ?? (draft.permissionMode !== 'default' && draftPermIdx >= 0 ? draft.permissionMode : null)
-            ?? machinePreferredPermissionModeKey
-            ?? (lastUsedPermIdx >= 0 && lastUsedPermissionMode ? lastUsedPermissionMode : null)
-            ?? (defaultPermIdx >= 0 ? effectiveAgentDefaults.permissionMode : null)
-            ?? (draftPermIdx >= 0 ? draft.permissionMode : null)
-            ?? getDefaultPermissionModeKey(selectedAgent);
+        const preferredPermissionKey = resolveNewSessionPermissionKey(
+            permissionModes,
+            draft.permissionMode,
+            effectiveAgentDefaults.permissionMode,
+            permissionSelectionTouchedRef.current,
+            getDefaultPermissionModeKey(selectedAgent),
+        );
 
         const preferredPermIdx = permissionModes.findIndex(m => m.key === preferredPermissionKey);
         setPermissionIndex(preferredPermIdx >= 0 ? preferredPermIdx : 0);
 
         if (
             !permissionSelectionTouchedRef.current &&
-            preferredPermissionKey &&
+            preferredPermissionKey !== null &&
             preferredPermissionKey !== draft.permissionMode
         ) {
             draft.setPermissionMode(preferredPermissionKey);
         }
     }, [
         selectedAgent,
+        selectedMachineId,
         permissionModes,
         draft.permissionMode,
         draft.setPermissionMode,
-        machinePreferredPermissionModeKey,
-        lastUsedPermissionMode,
         effectiveAgentDefaults.permissionMode,
     ]);
 

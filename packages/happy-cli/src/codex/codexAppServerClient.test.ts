@@ -237,6 +237,76 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
+    it('emits turn_aborted when the active Codex process exits unexpectedly', async () => {
+        const proc = createMockProcess({
+            pid: 1003,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                thread: { id: 'thread-exit', path: '/tmp/thread-exit' },
+                                model: 'gpt-test',
+                                modelProvider: 'openai',
+                                cwd: '/tmp/project',
+                                approvalPolicy: 'never',
+                                sandbox: { type: 'dangerFullAccess' },
+                                reasoningEffort: null,
+                            },
+                        });
+                    }, 0);
+                }
+
+                if (msg.method === 'turn/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                turn: { id: 'turn-exit', items: [], status: 'inProgress', error: null },
+                            },
+                        });
+                        pushJsonLine(stdout, {
+                            method: 'turn/started',
+                            params: {
+                                threadId: 'thread-exit',
+                                turn: { id: 'turn-exit', items: [], status: 'inProgress', error: null },
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => events.push(msg as Record<string, unknown>));
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-test',
+            cwd: '/tmp/project',
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+
+        const pendingTurn = client.sendTurnAndWait('keep working');
+        await waitFor(() => events.some((event) => event.type === 'task_started'));
+        proc.emit('exit', 1, null);
+
+        await expect(pendingTurn).resolves.toEqual({ aborted: true });
+        expect(events).toContainEqual(expect.objectContaining({
+            type: 'turn_aborted',
+            turn_id: 'turn-exit',
+            status: 'interrupted',
+            error: 'Codex process exited unexpectedly (code=1, signal=null)',
+        }));
+
+        await client.disconnect();
+    });
+
     it('reconnects and resumes the same thread after forced restart timeout', async () => {
         const firstProcessRequests: MockRpcMessage[] = [];
         const secondProcessRequests: MockRpcMessage[] = [];
@@ -339,7 +409,7 @@ describe('CodexAppServerClient sandbox integration', () => {
             sandbox: 'read-only',
         });
 
-        const pendingTurn = client.sendTurnAndWait('hang forever', { turnTimeoutMs: 5000 });
+        const pendingTurn = client.sendTurnAndWait('hang forever');
         await waitFor(() => firstProcessRequests.some((msg) => msg.method === 'turn/start'));
 
         const abortResult = await client.abortTurnWithFallback({
@@ -457,7 +527,7 @@ describe('CodexAppServerClient sandbox integration', () => {
             sandbox: 'read-only',
         });
 
-        const pendingTurn = client.sendTurnAndWait('hang on interrupt', { turnTimeoutMs: 5000 });
+        const pendingTurn = client.sendTurnAndWait('hang on interrupt');
         await waitFor(() => firstProcessRequests.some((msg) => msg.method === 'turn/start'));
         await waitFor(() => client.turnId === 'turn-stuck-interrupt');
 
@@ -1310,6 +1380,13 @@ describe('CodexAppServerClient sandbox integration', () => {
                                 },
                             },
                         });
+                        pushJsonLine(stdout, {
+                            method: 'turn/completed',
+                            params: {
+                                threadId: 'thread-raw-3',
+                                turn: { id: 'turn-raw-3', items: [], status: 'completed', error: null },
+                            },
+                        });
                     }, 0);
                 }
             },
@@ -1596,10 +1673,12 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
-    it('falls back to final answer completion when raw turn/completed is missing', async () => {
+    it('waits for native turn completion after a final answer item', async () => {
+        let stdoutRef: (NodeJS.ReadableStream & { push: (chunk: string) => void }) | null = null;
         const proc = createMockProcess({
             pid: 3002,
             onRequest: (msg, stdout) => {
+                stdoutRef = stdout;
                 if (msg.method === 'thread/start' && msg.id != null) {
                     setTimeout(() => {
                         pushJsonLine(stdout, {
@@ -1667,7 +1746,24 @@ describe('CodexAppServerClient sandbox integration', () => {
             sandbox: 'danger-full-access',
         });
 
-        await expect(client.sendTurnAndWait('say hi')).resolves.toEqual({ aborted: false });
+        let completed = false;
+        const pendingTurn = client.sendTurnAndWait('say hi').then((result) => {
+            completed = true;
+            return result;
+        });
+        await waitFor(() => events.some((event) => event.type === 'agent_message'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(completed).toBe(false);
+
+        pushJsonLine(stdoutRef!, {
+            method: 'turn/completed',
+            params: {
+                threadId: 'thread-raw-2',
+                turn: { id: 'turn-raw-2', items: [], status: 'completed', error: null },
+            },
+        });
+
+        await expect(pendingTurn).resolves.toEqual({ aborted: false });
         expect(events).toEqual(expect.arrayContaining([
             expect.objectContaining({ type: 'task_started', turn_id: 'turn-raw-2' }),
             expect.objectContaining({ type: 'agent_message', message: 'still works' }),

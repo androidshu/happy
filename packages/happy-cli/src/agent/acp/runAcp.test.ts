@@ -3,11 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => {
   const sessionHandlers = new Map<string, (params: any) => Promise<any> | any>();
   let userMessageHandler: ((message: any) => void) | null = null;
+  let metadataUpdateHandler: ((metadata: any) => void) | null = null;
   let killHandler: (() => Promise<void>) | null = null;
 
   const mockSession = {
     onUserMessage: vi.fn((handler: (message: any) => void) => {
       userMessageHandler = handler;
+    }),
+    onMetadataUpdate: vi.fn((handler: (metadata: any) => void) => {
+      metadataUpdateHandler = handler;
+      return vi.fn();
     }),
     keepAlive: vi.fn(),
     sendSessionProtocolMessage: vi.fn(),
@@ -59,6 +64,10 @@ const mocks = vi.hoisted(() => {
     getUserMessageHandler: () => userMessageHandler,
     setUserMessageHandler: (handler: ((message: any) => void) | null) => {
       userMessageHandler = handler;
+    },
+    getMetadataUpdateHandler: () => metadataUpdateHandler,
+    setMetadataUpdateHandler: (handler: ((metadata: any) => void) | null) => {
+      metadataUpdateHandler = handler;
     },
     getKillHandler: () => killHandler,
     setKillHandler: (handler: (() => Promise<void>) | null) => {
@@ -195,6 +204,7 @@ describe('runAcp', () => {
     vi.clearAllMocks();
     mocks.sessionHandlers.clear();
     mocks.setUserMessageHandler(null);
+    mocks.setMetadataUpdateHandler(null);
     mocks.setKillHandler(null);
     mocks.backendState.listeners = [];
     mocks.backendState.prompts = [];
@@ -588,6 +598,58 @@ describe('runAcp', () => {
     ]);
     expect(mocks.backendState.setModeCalls).toEqual([]);
     expect(mocks.backendState.setModelCalls).toEqual([]);
+  });
+
+  it('applies the initial and live Qoder permission mode before another prompt', async () => {
+    mocks.backendState.startSessionMessages = [
+      {
+        type: 'event',
+        name: 'config_options_update',
+        payload: {
+          configOptions: [
+            {
+              type: 'select',
+              id: 'permission-mode',
+              name: 'Permission Mode',
+              category: 'mode',
+              currentValue: 'default',
+              options: [
+                { value: 'default', name: 'Default' },
+                { value: 'bypassPermissions', name: 'Bypass Permissions' },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+
+    const runPromise = runAcp({
+      credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
+      agentName: 'qoder',
+      command: 'qodercli',
+      args: ['--acp'],
+      permissionMode: 'bypassPermissions',
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.backendState.setConfigOptionCalls).toContainEqual({
+        configId: 'permission-mode',
+        value: 'bypassPermissions',
+      });
+      expect(mocks.getMetadataUpdateHandler()).toBeTypeOf('function');
+    });
+
+    mocks.backendState.setConfigOptionCalls = [];
+    mocks.getMetadataUpdateHandler()!({ permissionMode: 'default' });
+
+    await vi.waitFor(() => {
+      expect(mocks.backendState.setConfigOptionCalls).toEqual([
+        { configId: 'permission-mode', value: 'default' },
+      ]);
+    });
+
+    await mocks.getKillHandler()!();
+    await runPromise;
   });
 
   it('ignores ACP model and permission mode requests when values do not match advertised options', async () => {

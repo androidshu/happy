@@ -60,7 +60,6 @@ import { RevenueCat, LogLevel, PaywallResult } from './revenueCat';
 import { getServerUrl } from './serverConfig';
 import { config } from '@/config';
 import { log } from '@/log';
-import { gitStatusSync } from './gitStatusSync';
 import { AsyncLock } from '@/utils/lock';
 import { voiceHooks } from '@/realtime/hooks/voiceHooks';
 import { Message } from './typesMessage';
@@ -97,16 +96,6 @@ type V3GetSessionMessagesResponse = {
 // 2_147_483_647. We use that exact upper bound to keep the request safely
 // within int4 while still being effectively "infinite" for any session.
 const SEQ_BACKWARD_INITIAL_SENTINEL = 2_147_483_647;
-
-type V3PostSessionMessagesResponse = {
-    messages: Array<{
-        id: string;
-        seq: number;
-        localId: string | null;
-        createdAt: number;
-        updatedAt: number;
-    }>;
-};
 
 type OutboxMessage = {
     localId: string;
@@ -359,9 +348,6 @@ class Sync {
 
     onSessionVisible = (sessionId: string) => {
         this.getMessagesSync(sessionId).invalidate();
-
-        // Also invalidate git status sync for this session
-        gitStatusSync.getSync(sessionId).invalidate();
 
         // Notify voice assistant about session visibility
         const session = storage.getState().sessions[sessionId];
@@ -2134,18 +2120,10 @@ class Sync {
                 throw new Error(`Failed to send messages for ${sessionId}: ${response.status}`);
             }
 
-            const data = await response.json() as V3PostSessionMessagesResponse;
             pending.splice(0, batch.length);
-            if (Array.isArray(data.messages) && data.messages.length > 0) {
-                const currentLastSeq = this.sessionLastSeq.get(sessionId) ?? 0;
-                let maxSeq = currentLastSeq;
-                for (const message of data.messages) {
-                    if (message.seq > maxSeq) {
-                        maxSeq = message.seq;
-                    }
-                }
-                this.sessionLastSeq.set(sessionId, maxSeq);
-            }
+            // A POST response only confirms delivery of this client's outbox.
+            // The session seq is shared by both sides, so it must not advance
+            // the receive cursor past messages that have not been routed yet.
         } catch (error) {
             this.maybeStartBackgroundSendWatchdog();
             throw error;
@@ -2526,13 +2504,6 @@ class Sync {
                     if (lastMessage && currentLastSeq !== undefined && incomingSeq === currentLastSeq + 1) {
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
                         this.sessionLastSeq.set(updateData.body.sid, incomingSeq);
-                        let hasMutableTool = false;
-                        if (lastMessage.role === 'agent' && lastMessage.content[0] && lastMessage.content[0].type === 'tool-result') {
-                            hasMutableTool = storage.getState().isMutableToolCall(updateData.body.sid, lastMessage.content[0].tool_use_id);
-                        }
-                        if (hasMutableTool) {
-                            gitStatusSync.invalidate(updateData.body.sid);
-                        }
                     } else {
                         this.getMessagesSync(updateData.body.sid).invalidate();
                     }
@@ -2555,8 +2526,6 @@ class Sync {
             // Remove encryption keys from memory
             this.encryption.removeSessionEncryption(sessionId);
 
-            // Clear any cached git status
-            gitStatusSync.clearForSession(sessionId);
             this.messagesSync.delete(sessionId);
             this.sendSync.delete(sessionId);
             this.pendingOutbox.delete(sessionId);
@@ -2615,10 +2584,7 @@ class Sync {
                 }]);
                 if (nextProjectId !== session.projectId) this.projectsSync.invalidate();
 
-                // Invalidate git status when agent state changes (files may have been modified)
                 if (updateData.body.agentState) {
-                    gitStatusSync.invalidate(updateData.body.id);
-
                     // Check for new permission requests and notify voice assistant
                     if (agentState?.requests && Object.keys(agentState.requests).length > 0) {
                         const requestIds = Object.keys(agentState.requests);

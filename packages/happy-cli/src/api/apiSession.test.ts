@@ -193,6 +193,33 @@ describe('ApiSessionClient v3 messages API migration', () => {
         expect(mockSocket.connect).toHaveBeenCalledTimes(1);
     });
 
+    it('publishes newer encrypted metadata to live session consumers', () => {
+        const client = new ApiSessionClient('fake-token', session);
+        const onMetadata = vi.fn();
+        client.onMetadataUpdate(onMetadata);
+        const metadata = {
+            ...session.metadata,
+            permissionMode: 'yolo',
+        };
+
+        emitSocketEvent('update', {
+            id: 'upd-metadata-1',
+            seq: 1,
+            createdAt: Date.now(),
+            body: {
+                t: 'update-session',
+                id: session.id,
+                metadata: {
+                    value: encryptContent(session, metadata),
+                    version: 1,
+                },
+            },
+        } as Update);
+
+        expect(onMetadata).toHaveBeenCalledWith(metadata);
+        expect(client.getMetadata()).toEqual(metadata);
+    });
+
     it('retries after initial socket connection error', async () => {
         vi.useFakeTimers();
         mockSocket.connected = false;

@@ -96,6 +96,28 @@ describe('PermissionHandler', () => {
         expect(setMode).toHaveBeenCalledWith('bypassPermissions');
     });
 
+    it('immediately approves an existing tool request when live mode switches to YOLO', async () => {
+        const { session, getState } = createSessionMock();
+        const handler = new PermissionHandler(session as any);
+        const controller = new AbortController();
+
+        const pending = handler.handleToolCall(
+            'Bash',
+            { command: 'pwd' },
+            mode,
+            { signal: controller.signal, toolUseID: 'toolu_live_yolo' },
+        );
+
+        handler.handleModeChange('yolo');
+
+        await expect(pending).resolves.toMatchObject({ behavior: 'allow' });
+        expect(getState().requests).toEqual({});
+        expect(getState().completedRequests.toolu_live_yolo).toMatchObject({
+            status: 'approved',
+            mode: 'bypassPermissions',
+        });
+    });
+
     it('keeps main-thread request IDs unchanged', async () => {
         const { session, getState, handlers } = createSessionMock();
         const handler = new PermissionHandler(session as any);

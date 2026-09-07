@@ -48,6 +48,7 @@ export abstract class BasePermissionHandler {
     protected session: ApiSessionClient;
     private isResetting = false;
     private approveRemainingForSession = false;
+    private permissionModeAutoApproval = false;
 
     /**
      * Returns the log prefix for this handler.
@@ -148,7 +149,51 @@ export abstract class BasePermissionHandler {
      * should skip interactive permission prompts.
      */
     protected isSessionAutoApprovalEnabled(): boolean {
-        return this.approveRemainingForSession;
+        return this.approveRemainingForSession || this.permissionModeAutoApproval;
+    }
+
+    /**
+     * Apply a live permission-mode change to both future and already-pending
+     * tool requests. A pending request was created under the previous mode;
+     * leaving it blocked after switching to YOLO makes the picker lie.
+     */
+    setPermissionModeAutoApproval(enabled: boolean): void {
+        this.permissionModeAutoApproval = enabled;
+        if (!enabled || this.pendingRequests.size === 0) {
+            return;
+        }
+
+        const pendingSnapshot = Array.from(this.pendingRequests.entries());
+        this.pendingRequests.clear();
+
+        for (const [, pending] of pendingSnapshot) {
+            pending.resolve({ decision: 'approved' });
+        }
+
+        this.session.updateAgentState((currentState) => {
+            const requests = { ...(currentState.requests || {}) };
+            const completedRequests = { ...(currentState.completedRequests || {}) };
+
+            for (const [id] of pendingSnapshot) {
+                const request = requests[id];
+                if (!request) continue;
+                delete requests[id];
+                completedRequests[id] = {
+                    ...request,
+                    completedAt: Date.now(),
+                    status: 'approved',
+                    decision: 'approved',
+                };
+            }
+
+            return {
+                ...currentState,
+                requests,
+                completedRequests,
+            };
+        });
+
+        logger.debug(`${this.getLogPrefix()} Auto-approved ${pendingSnapshot.length} pending permission(s) after live mode change`);
     }
 
     /**

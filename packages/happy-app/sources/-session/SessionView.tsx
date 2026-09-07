@@ -27,9 +27,8 @@ import { useImagePicker } from '@/hooks/useImagePicker';
 import { Modal } from '@/modal';
 import { voiceHooks } from '@/realtime/hooks/voiceHooks';
 import { getCurrentVoiceConversationId, getCurrentVoiceSessionDurationSeconds, startRealtimeSession, stopRealtimeSession } from '@/realtime/RealtimeSession';
-import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort, sessionCancelCommunication, sessionGoalAction, sessionSetAgentModes, spawnSideChat, sessionKill, sessionArchive } from '@/sync/ops';
-import { storage, useIsDataReady, useLocalSetting, useRealtimeStatus, useSessionGitStatus, useSessionMessages, useSessionPendingCommunications, useSessionUsage, useSetting, useSideChatSessions } from '@/sync/storage';
+import { storage, useIsDataReady, useLocalSetting, useRealtimeStatus, useSessionMessages, useSessionPendingCommunications, useSessionUsage, useSetting, useSideChatSessions } from '@/sync/storage';
 import { useSession } from '@/sync/storage';
 import { getSessionForkSource } from '@/utils/sessionFork';
 import { useHappyAction } from '@/hooks/useHappyAction';
@@ -42,7 +41,6 @@ import { tracking } from '@/track';
 import { getVoiceMessageCount, getVoiceOnboardingPromptLoadCount } from '@/sync/persistence';
 import { isRunningOnMac } from '@/utils/platform';
 import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/utils/responsive';
-import { resolveStatusBarGitBranch } from '@/utils/sessionStatusBar';
 import { createVoiceEchoFilter } from '@/utils/voiceEchoFilter';
 import { visibleRigGitLineChanges } from '@/utils/rigGitLineChanges';
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
@@ -543,6 +541,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                         onCreateSideChat={createSideChat}
                         canCreateSideChat={!!sideChatForkSource}
                         creatingSideChat={creatingSideChat}
+                        visible={showSidebar}
                     />
                 </View>
             </Animated.View>
@@ -774,7 +773,6 @@ export function SessionViewLoaded({
 
     const sessionStatus = useSessionStatus(session);
     const sessionUsage = useSessionUsage(sessionId);
-    const gitStatus = useSessionGitStatus(sessionId);
     const alwaysShowContextSize = useSetting('alwaysShowContextSize');
     const experiments = useSetting('experiments');
     const { canResume, resumeSession, resumingSession } = useSessionQuickActions(session);
@@ -913,14 +911,8 @@ export function SessionViewLoaded({
         const gitBranch = (session.metadata as { gitBranch?: unknown } | null)?.gitBranch;
         return typeof gitBranch === 'string' && gitBranch.trim() ? gitBranch.trim() : null;
     }, [session.metadata]);
-    const statusBarGitBranch = resolveStatusBarGitBranch(gitStatus?.branch, metadataGitBranch);
-    // Same source and fallback chain as the session list rows.
+    const statusBarGitBranch = metadataGitBranch;
     const statusBarGitChanges = React.useMemo(() => {
-        const liveInsertions = gitStatus?.unstagedLinesAdded ?? 0;
-        const liveDeletions = gitStatus?.unstagedLinesRemoved ?? 0;
-        if (liveInsertions > 0 || liveDeletions > 0) {
-            return { approximate: false, insertions: liveInsertions, deletions: liveDeletions };
-        }
         const rigGit = getRigGitSummary(session.metadata);
         if (rigGit && rigGit.changedFiles !== null) {
             return visibleRigGitLineChanges({
@@ -931,7 +923,7 @@ export function SessionViewLoaded({
             });
         }
         return null;
-    }, [gitStatus?.unstagedLinesAdded, gitStatus?.unstagedLinesRemoved, session.metadata]);
+    }, [session.metadata]);
 
     const claudeUsageStatus = React.useMemo(() => {
         if (flavor !== 'claude') return undefined;
@@ -1030,7 +1022,7 @@ export function SessionViewLoaded({
         isMicActive: false,
     }), [handleMicrophonePress, voiceSessionActive]);
 
-    // Trigger session visibility and initialize git status sync
+    // Trigger session visibility.
     React.useLayoutEffect(() => {
 
         // Trigger session sync
@@ -1042,9 +1034,6 @@ export function SessionViewLoaded({
         if (!embedded) {
             storage.getState().setCurrentViewingSession(sessionId);
         }
-
-        // Initialize git status sync for this session
-        gitStatusSync.getSync(sessionId).invalidate();
 
         return () => {
             if (embedded) {

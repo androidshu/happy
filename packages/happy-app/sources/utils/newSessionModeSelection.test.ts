@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolvePermissionStyle, resolveSelectedOption } from './newSessionModeSelection';
+import { resolveNewSessionPermissionKey, resolvePermissionStyle, resolveSelectedOption } from './newSessionModeSelection';
 
 const modes = [
     { key: 'default', name: 'Default' },
@@ -18,6 +18,11 @@ describe('new session mode selection', () => {
         // empty permission catalog; the screen must render without a pick.
         expect(resolveSelectedOption([], 0)).toBeNull();
         expect(resolveSelectedOption([], 3)).toBeNull();
+    });
+
+    it('uses the configured permission default until the current context is explicitly changed', () => {
+        expect(resolveNewSessionPermissionKey(modes, 'default', 'yolo', false)).toBe('yolo');
+        expect(resolveNewSessionPermissionKey(modes, 'default', 'yolo', true)).toBe('default');
     });
 
     it('has no permission accent without a selection or for the default mode', () => {

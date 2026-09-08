@@ -19,6 +19,7 @@ import { usesControlledSessionUi } from '@/sync/rig';
 import { buildAgentTurnCopyTextByMessageId } from '@/utils/agentTurnCopy';
 
 const SCROLL_THRESHOLD = 300;
+const WEB_BOTTOM_STICK_THRESHOLD = 50;
 const DOCK_DETAILS_SHOW_OFFSET = 16;
 const DOCK_DETAILS_HIDE_OFFSET = 48;
 // Visual gap between the button's bottom edge and the composer card's top
@@ -113,6 +114,7 @@ const ChatListInternal = React.memo((props: {
     const showScrollButtonRef = React.useRef(false);
     const headerBackdropVisibleRef = React.useRef(false);
     const bottomDockVisibleRef = React.useRef(true);
+    const webShouldStickToBottomRef = React.useRef(true);
     const scrollMetricsRef = React.useRef({
         rawOffsetY: 0,
         offsetY: 0,
@@ -186,6 +188,15 @@ const ChatListInternal = React.memo((props: {
         () => Platform.OS === 'web' ? [...displayItems].reverse() : displayItems,
         [displayItems],
     );
+    React.useLayoutEffect(() => {
+        if (Platform.OS !== 'web' || !webShouldStickToBottomRef.current) {
+            return;
+        }
+        const frame = requestAnimationFrame(() => {
+            webListRef.current?.scrollToEnd({ animated: false });
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [webDisplayItems]);
     const agentCopyTextByMessageId = React.useMemo(
         () => buildAgentTurnCopyTextByMessageId(props.messages, { currentTurnComplete: collapseCurrentTurn }),
         [collapseCurrentTurn, props.messages],
@@ -409,6 +420,9 @@ const ChatListInternal = React.memo((props: {
         const offsetY = Platform.OS === 'web'
             ? Math.max(0, contentHeight - viewportHeight - rawOffsetY)
             : rawOffsetY;
+        if (Platform.OS === 'web') {
+            webShouldStickToBottomRef.current = offsetY <= WEB_BOTTOM_STICK_THRESHOLD;
+        }
         scrollMetricsRef.current.rawOffsetY = rawOffsetY;
         scrollMetricsRef.current.offsetY = offsetY;
         scrollMetricsRef.current.contentHeight = contentHeight;
@@ -475,8 +489,12 @@ const ChatListInternal = React.memo((props: {
                     keyExtractor={keyExtractor}
                     maintainVisibleContentPosition={{
                         startRenderingFromBottom: true,
-                        autoscrollToBottomThreshold: 50,
-                        animateAutoScrollToBottom: false,
+                        // Message growth is pinned by the webDisplayItems
+                        // layout effect. FlashList also reruns its
+                        // built-in bottom autoscroll when the viewport height
+                        // changes; the desktop composer resizes while typing,
+                        // so enabling it here makes the transcript jump on
+                        // every wrapped/unwrapped line.
                     }}
                     keyboardShouldPersistTaps="handled"
                     keyboardDismissMode="none"

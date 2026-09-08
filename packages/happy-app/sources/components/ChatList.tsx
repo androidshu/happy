@@ -3,6 +3,7 @@ import { useSession, useSessionMessages, useSetting } from "@/sync/storage";
 import { sync } from '@/sync/sync';
 import { ActivityIndicator, AppState, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, View } from 'react-native';
 import { useCallback } from 'react';
+import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { useHeaderHeight } from '@/utils/responsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessageView } from './MessageView';
@@ -101,7 +102,8 @@ const ChatListInternal = React.memo((props: {
     onBottomDockVisibilityChange?: (visible: boolean) => void,
 }) => {
     const { theme } = useUnistyles();
-    const flatListRef = React.useRef<FlatList>(null);
+    const nativeListRef = React.useRef<FlatList<DisplayItem>>(null);
+    const webListRef = React.useRef<FlashListRef<DisplayItem>>(null);
     const [showScrollButton, setShowScrollButton] = React.useState(false);
     const [handoffListRevision, setHandoffListRevision] = React.useState(0);
     // Tracks whether the scroll-button is currently shown, so we only call
@@ -112,10 +114,18 @@ const ChatListInternal = React.memo((props: {
     const headerBackdropVisibleRef = React.useRef(false);
     const bottomDockVisibleRef = React.useRef(true);
     const scrollMetricsRef = React.useRef({
+        rawOffsetY: 0,
         offsetY: 0,
         contentHeight: 0,
         viewportHeight: 0,
     });
+    const scrollToListOffset = React.useCallback((offset: number, animated: boolean) => {
+        if (Platform.OS === 'web') {
+            webListRef.current?.scrollToOffset({ offset, animated });
+            return;
+        }
+        nativeListRef.current?.scrollToOffset({ offset, animated });
+    }, []);
     const preserveToolGroupAnchor = React.useCallback((anchor: ToolGroupLayoutAnchor) => {
         // Inverted FlatList rows keep their visual bottom edge fixed when their
         // height changes. Measure the pressed header after layout and offset the
@@ -129,12 +139,14 @@ const ChatListInternal = React.memo((props: {
                 if (Math.abs(adjustment) < 0.5) {
                     return;
                 }
-                const nextOffset = Math.max(0, scrollMetricsRef.current.offsetY + adjustment);
-                scrollMetricsRef.current.offsetY = nextOffset;
-                flatListRef.current?.scrollToOffset({ offset: nextOffset, animated: false });
+                const nextOffset = Platform.OS === 'web'
+                    ? Math.max(0, scrollMetricsRef.current.rawOffsetY - adjustment)
+                    : Math.max(0, scrollMetricsRef.current.rawOffsetY + adjustment);
+                scrollMetricsRef.current.rawOffsetY = nextOffset;
+                scrollToListOffset(nextOffset, false);
             });
         });
-    }, []);
+    }, [scrollToListOffset]);
     const session = useSession(props.sessionId);
     const controlMode = resolveControlMode(usesControlledSessionUi(session?.metadata) ? session?.agentState?.controlledByUser : false);
     const previousControlModeRef = React.useRef(controlMode);
@@ -166,6 +178,14 @@ const ChatListInternal = React.memo((props: {
         [collapseCurrentTurn],
     );
     const displayItems = useGroupedMessages(props.messages, groupToolCalls, groupingOptions);
+    // React Native Web's inverted VirtualizedList rewrites scrollTop in its
+    // wheel handler and does not implement maintainVisibleContentPosition.
+    // FlashList consumes chronological data and anchors visible rows itself,
+    // avoiding both sources of viewport drift in the macOS Tauri app.
+    const webDisplayItems = React.useMemo(
+        () => Platform.OS === 'web' ? [...displayItems].reverse() : displayItems,
+        [displayItems],
+    );
     const agentCopyTextByMessageId = React.useMemo(
         () => buildAgentTurnCopyTextByMessageId(props.messages, { currentTurnComplete: collapseCurrentTurn }),
         [collapseCurrentTurn, props.messages],
@@ -380,8 +400,19 @@ const ChatListInternal = React.memo((props: {
     // scrollToOffset is needed (and running both produces a fight that drags
     // the user's viewport when reading older messages mid-stream).
     const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-        const offsetY = e.nativeEvent.contentOffset.y;
+        const rawOffsetY = e.nativeEvent.contentOffset.y;
+        const contentHeight = e.nativeEvent.contentSize.height;
+        const viewportHeight = e.nativeEvent.layoutMeasurement.height;
+        // Consumers below use distance from the visual bottom. Native's
+        // inverted FlatList already reports that value; the chronological web
+        // list reports a conventional top offset, so derive the same metric.
+        const offsetY = Platform.OS === 'web'
+            ? Math.max(0, contentHeight - viewportHeight - rawOffsetY)
+            : rawOffsetY;
+        scrollMetricsRef.current.rawOffsetY = rawOffsetY;
         scrollMetricsRef.current.offsetY = offsetY;
+        scrollMetricsRef.current.contentHeight = contentHeight;
+        scrollMetricsRef.current.viewportHeight = viewportHeight;
         updateHeaderBackdropVisibility();
         updateBottomDockVisibility(offsetY);
         const next = offsetY > SCROLL_THRESHOLD;
@@ -392,7 +423,11 @@ const ChatListInternal = React.memo((props: {
     }, [updateBottomDockVisibility, updateHeaderBackdropVisibility]);
 
     const scrollToBottom = useCallback(() => {
-        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+        if (Platform.OS === 'web') {
+            webListRef.current?.scrollToEnd({ animated: true });
+            return;
+        }
+        nativeListRef.current?.scrollToOffset({ offset: 0, animated: true });
     }, []);
 
     // In an inverted FlatList, `onEndReached` fires when the user scrolls
@@ -406,11 +441,19 @@ const ChatListInternal = React.memo((props: {
         if (!hasMoreOlder || isLoadingOlder) return;
         void sync.loadOlderMessages(sessionId);
     }, [sessionId, hasMoreOlder, isLoadingOlder]);
+    const handleListLayout = useCallback((event: { nativeEvent: { layout: { height: number } } }) => {
+        scrollMetricsRef.current.viewportHeight = event.nativeEvent.layout.height;
+        updateHeaderBackdropVisibility();
+    }, [updateHeaderBackdropVisibility]);
+    const handleContentSizeChange = useCallback((_width: number, height: number) => {
+        scrollMetricsRef.current.contentHeight = height;
+        updateHeaderBackdropVisibility();
+    }, [updateHeaderBackdropVisibility]);
 
     // On macOS/web, Shift+wheel swaps deltaX/deltaY — restore vertical scrolling
     React.useEffect(() => {
         if (Platform.OS !== 'web') return;
-        const node = (flatListRef.current as any)?.getScrollableNode?.() as HTMLElement | undefined;
+        const node = webListRef.current?.getScrollableNode?.() as HTMLElement | undefined;
         if (!node) return;
         const handler = (e: WheelEvent) => {
             if (e.shiftKey && Math.abs(e.deltaX) > 0 && Math.abs(e.deltaY) < 1) {
@@ -424,53 +467,78 @@ const ChatListInternal = React.memo((props: {
 
     return (
         <View style={{ flex: 1 }}>
-            <FlatList
-                key={`${props.sessionId}:${handoffListRevision}`}
-                ref={flatListRef}
-                data={displayItems}
-                inverted={true}
-                keyExtractor={keyExtractor}
-                maintainVisibleContentPosition={{
-                    // Anchor on the second-newest message (index 1), not the
-                    // newest. The newest slot (index 0) gets a brand-new item
-                    // each agent token, which would otherwise destabilise the
-                    // anchor and drag the viewport up.
-                    //
-                    // autoscrollToTopThreshold: for INVERTED lists this is
-                    // actually the auto-stick-to-visual-bottom threshold —
-                    // contentOffset 0 is at the visual bottom in an inverted
-                    // list, and this prop sticks the viewport to offset 0
-                    // when the user is within N units of it.
-                    minIndexForVisible: 1,
-                    autoscrollToTopThreshold: 50,
-                }}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
-                // Inverted list: paddingTop renders at the visual bottom.
-                // The measured dock inset lets the newest message scroll above
-                // the floating composer instead of stopping underneath it.
-                contentContainerStyle={{ paddingTop: 8 + (props.bottomContentInset ?? 0) }}
-                renderItem={renderItem}
-                onScroll={handleScroll}
-                scrollEventThrottle={16}
-                onLayout={(event) => {
-                    scrollMetricsRef.current.viewportHeight = event.nativeEvent.layout.height;
-                    updateHeaderBackdropVisibility();
-                }}
-                onContentSizeChange={(_width, height) => {
-                    scrollMetricsRef.current.contentHeight = height;
-                    updateHeaderBackdropVisibility();
-                }}
-                ListHeaderComponent={<ListFooter sessionId={props.sessionId} />}
-                ListFooterComponent={(
-                    <ListHeader
-                        isLoadingOlder={props.isLoadingOlder}
-                        topContentInset={props.topContentInset}
-                    />
-                )}
-                onEndReached={handleLoadOlder}
-                onEndReachedThreshold={0.5}
-            />
+            {Platform.OS === 'web' ? (
+                <FlashList
+                    key={`${props.sessionId}:${handoffListRevision}`}
+                    ref={webListRef}
+                    data={webDisplayItems}
+                    keyExtractor={keyExtractor}
+                    maintainVisibleContentPosition={{
+                        startRenderingFromBottom: true,
+                        autoscrollToBottomThreshold: 50,
+                        animateAutoScrollToBottom: false,
+                    }}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="none"
+                    contentContainerStyle={{ paddingBottom: 8 + (props.bottomContentInset ?? 0) }}
+                    renderItem={renderItem}
+                    onScroll={handleScroll}
+                    scrollEventThrottle={16}
+                    onLayout={handleListLayout}
+                    onContentSizeChange={handleContentSizeChange}
+                    ListHeaderComponent={(
+                        <ListHeader
+                            isLoadingOlder={props.isLoadingOlder}
+                            topContentInset={props.topContentInset}
+                        />
+                    )}
+                    ListFooterComponent={<ListFooter sessionId={props.sessionId} />}
+                    onStartReached={handleLoadOlder}
+                    onStartReachedThreshold={0.5}
+                />
+            ) : (
+                <FlatList
+                    key={`${props.sessionId}:${handoffListRevision}`}
+                    ref={nativeListRef}
+                    data={displayItems}
+                    inverted={true}
+                    keyExtractor={keyExtractor}
+                    maintainVisibleContentPosition={{
+                        // Anchor on the second-newest message (index 1), not the
+                        // newest. The newest slot (index 0) gets a brand-new item
+                        // each agent token, which would otherwise destabilise the
+                        // anchor and drag the viewport up.
+                        //
+                        // autoscrollToTopThreshold: for INVERTED lists this is
+                        // actually the auto-stick-to-visual-bottom threshold —
+                        // contentOffset 0 is at the visual bottom in an inverted
+                        // list, and this prop sticks the viewport to offset 0
+                        // when the user is within N units of it.
+                        minIndexForVisible: 1,
+                        autoscrollToTopThreshold: 50,
+                    }}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
+                    // Inverted list: paddingTop renders at the visual bottom.
+                    // The measured dock inset lets the newest message scroll above
+                    // the floating composer instead of stopping underneath it.
+                    contentContainerStyle={{ paddingTop: 8 + (props.bottomContentInset ?? 0) }}
+                    renderItem={renderItem}
+                    onScroll={handleScroll}
+                    scrollEventThrottle={16}
+                    onLayout={handleListLayout}
+                    onContentSizeChange={handleContentSizeChange}
+                    ListHeaderComponent={<ListFooter sessionId={props.sessionId} />}
+                    ListFooterComponent={(
+                        <ListHeader
+                            isLoadingOlder={props.isLoadingOlder}
+                            topContentInset={props.topContentInset}
+                        />
+                    )}
+                    onEndReached={handleLoadOlder}
+                    onEndReachedThreshold={0.5}
+                />
+            )}
             {showScrollButton && (
                 <View style={[
                     styles.scrollButtonContainer,

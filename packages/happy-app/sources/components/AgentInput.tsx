@@ -1,7 +1,7 @@
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
 import * as React from 'react';
-import { Keyboard, View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable, TouchableWithoutFeedback, LayoutChangeEvent } from 'react-native';
+import { Keyboard, View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable, LayoutChangeEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
@@ -398,9 +398,42 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     },
     actionButtonsLeft: {
         flexDirection: 'row',
-        gap: 8,
+        alignItems: 'center',
+        gap: 6,
         flex: 1,
         overflow: 'hidden',
+    },
+    desktopModeControls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        flexShrink: 0,
+        minWidth: 0,
+    },
+    desktopModeButton: {
+        height: 30,
+        minWidth: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.glass.border,
+        backgroundColor: theme.colors.glass.backgroundSubtle,
+    },
+    desktopModeButtonPressed: {
+        backgroundColor: theme.colors.surfacePressedOverlay,
+    },
+    desktopModeButtonDisabled: {
+        opacity: 0.55,
+    },
+    desktopModeText: {
+        flexShrink: 0,
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.text,
+        ...Typography.default('regular'),
     },
     actionButton: {
         flexDirection: 'row',
@@ -1536,42 +1569,62 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         return false; // Key was not handled
     }, [suggestions, moveUp, moveDown, selected, handleSuggestionSelect, props.showAbortButton, props.onAbort, isAborting, handleAbortPress, agentInputEnterToSend, props.onSend, props.onPermissionModeChange, availableModes, permissionModeKey, isSendBlocked, handleBlockedSendAttempt, props.isSendDisabled]);
 
+    const renderDesktopModeButton = (
+        picker: ComposerPicker,
+        label: string,
+        icon: React.ComponentProps<typeof Ionicons>['name'],
+        enabled: boolean,
+        accessibilityLabel: string,
+    ) => (
+        <BubblePressable
+            onPress={() => handlePickerPress(picker)}
+            disabled={!enabled}
+            hitSlop={{ top: 5, bottom: 10, left: 2, right: 2 }}
+            style={({ pressed }) => [
+                styles.desktopModeButton,
+                pressed && enabled && styles.desktopModeButtonPressed,
+                !enabled && styles.desktopModeButtonDisabled,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`${accessibilityLabel}: ${label}`}
+        >
+            <Ionicons name={icon} size={14} color={theme.colors.textSecondary} />
+            <Text style={styles.desktopModeText}>
+                {label}
+            </Text>
+            <Ionicons name="chevron-down" size={11} color={theme.colors.textSecondary} />
+        </BubblePressable>
+    );
+
     const desktopActionControls = (
         <View style={styles.actionButtonsContainer}>
             <View style={{ flexDirection: 'column', flex: 1, gap: 2 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     {props.zenMode && <View style={{ flex: 1 }} />}
                     {!props.zenMode && <View style={styles.actionButtonsLeft}>
-                        {props.onPermissionModeChange && (
-                            useNativeSettingsMenus ? (
-                                <NativeSettingsMenu
-                                    accessibilityLabel={t('settings.title')}
-                                    groups={[...permissionSettingsGroups, ...modelSettingsGroups]}
-                                    style={{ width: 40, height: 40 }}
-                                >
-                                    <View style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-                                        <Octicons name="gear" size={16} color={theme.colors.button.secondary.tint} />
-                                    </View>
-                                </NativeSettingsMenu>
-                            ) : (
-                                <Pressable
-                                    onPress={handleSettingsPress}
-                                    hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
-                                    style={(p) => ({
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        borderRadius: Platform.select({ default: 16, android: 20 }),
-                                        paddingHorizontal: 8,
-                                        paddingVertical: 6,
-                                        justifyContent: 'center',
-                                        height: 32,
-                                        opacity: p.pressed ? 0.7 : 1,
-                                    })}
-                                >
-                                    <Octicons name="gear" size={16} color={theme.colors.button.secondary.tint} />
-                                </Pressable>
-                            )
-                        )}
+                        <View style={styles.desktopModeControls}>
+                            {(displayPermissionMode || availableModes.length > 0) && renderDesktopModeButton(
+                                'permission',
+                                displayPermissionMode?.name ?? permissionShortLabel ?? t('agentInput.permissionMode.title'),
+                                'shield-checkmark-outline',
+                                permissionSettingsGroups.length > 0,
+                                permissionSettingsGroups[0]?.label ?? t('agentInput.permissionMode.title'),
+                            )}
+                            {(props.modelMode || availableModels.length > 0) && renderDesktopModeButton(
+                                'model',
+                                modelLabel,
+                                'cube-outline',
+                                canOpenModelPicker,
+                                t('agentInput.model.title'),
+                            )}
+                            {(props.effortLevel || availableEffortLevels.length > 0) && renderDesktopModeButton(
+                                'effort',
+                                effortLabel ?? t('agentInput.effort.title'),
+                                'flash-outline',
+                                canOpenEffortPicker,
+                                t('agentInput.effort.title'),
+                            )}
+                        </View>
 
                         {props.agentType && props.onAgentClick && (
                             <Pressable
@@ -1718,164 +1771,6 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         </View>
     );
 
-    const renderDesktopPickerOption = (
-        key: string,
-        selected: boolean,
-        label: string,
-        description: string | null | undefined,
-        onPress: () => void,
-    ) => (
-        <Pressable
-            key={key}
-            onPress={onPress}
-            style={({ pressed }) => ({
-                flexDirection: 'row',
-                alignItems: 'flex-start',
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent',
-            })}
-        >
-            <View style={{
-                width: 16,
-                height: 16,
-                borderRadius: 8,
-                borderWidth: 2,
-                borderColor: selected ? theme.colors.radio.active : theme.colors.radio.inactive,
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: 12,
-                marginTop: 2,
-            }}>
-                {selected && <View style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: theme.colors.radio.dot,
-                }} />}
-            </View>
-            <View style={{ flex: 1 }}>
-                <Text style={{
-                    fontSize: 14,
-                    color: selected ? theme.colors.radio.active : theme.colors.text,
-                    ...Typography.default(),
-                }}>
-                    {label}
-                </Text>
-                {!!description && (
-                    <Text style={{
-                        fontSize: 11,
-                        color: theme.colors.textSecondary,
-                        ...Typography.default(),
-                    }}>
-                        {description}
-                    </Text>
-                )}
-            </View>
-        </Pressable>
-    );
-
-    const desktopSettingsOverlay = !useNativeSettingsMenus && !compactMobileComposer && openPicker === 'permission' ? (
-        <>
-            <TouchableWithoutFeedback onPress={closePicker}>
-                <View style={styles.overlayBackdrop} />
-            </TouchableWithoutFeedback>
-            <View style={[
-                styles.settingsOverlay,
-                { paddingHorizontal: screenWidth > 700 ? 0 : 8 },
-            ]}>
-                <FloatingOverlay maxHeight={400} keyboardShouldPersistTaps="always">
-                    <View style={styles.overlaySection}>
-                        <Text style={styles.overlaySectionTitle}>
-                            {isCodex
-                                ? t('agentInput.codexPermissionMode.title')
-                                : isGemini
-                                    ? t('agentInput.geminiPermissionMode.title')
-                                    : t('agentInput.permissionMode.title')}
-                        </Text>
-                        {availableModes.map((mode) => renderDesktopPickerOption(
-                            mode.key,
-                            permissionModeKey === mode.key,
-                            withSandboxSuffix(mode.name, mode.key),
-                            mode.description,
-                            () => handleSettingsSelect(mode),
-                        ))}
-                    </View>
-
-                    <View style={{ height: 1, backgroundColor: theme.colors.divider, marginHorizontal: 16 }} />
-
-                    <View style={{ flexDirection: 'row' }}>
-                        <View style={{ paddingVertical: 8, flex: 1 }}>
-                            <Text style={{
-                                fontSize: 12,
-                                fontWeight: '600',
-                                color: theme.colors.textSecondary,
-                                paddingHorizontal: 16,
-                                paddingBottom: 4,
-                                ...Typography.default('semiBold'),
-                            }}>
-                                {t('agentInput.model.title')}
-                            </Text>
-                            {availableModels.length > 0 ? availableModels.map((model) => renderDesktopPickerOption(
-                                model.key,
-                                props.modelMode?.key === model.key,
-                                model.name,
-                                model.description,
-                                () => {
-                                    hapticsLight();
-                                    props.onModelModeChange?.(model);
-                                    closePicker();
-                                },
-                            )) : (
-                                <Text style={{
-                                    fontSize: 13,
-                                    color: theme.colors.textSecondary,
-                                    paddingHorizontal: 16,
-                                    paddingVertical: 8,
-                                    ...Typography.default(),
-                                }}>
-                                    {t('agentInput.model.configureInCli')}
-                                </Text>
-                            )}
-                        </View>
-
-                        {availableEffortLevels.length > 0 && props.onEffortLevelChange && (
-                            <>
-                                <View style={{ width: 1, backgroundColor: theme.colors.divider, marginVertical: 8 }} />
-                                <View style={{ paddingVertical: 8, flex: 1 }}>
-                                    <Text style={{
-                                        fontSize: 12,
-                                        fontWeight: '600',
-                                        color: theme.colors.textSecondary,
-                                        paddingHorizontal: 16,
-                                        paddingBottom: 4,
-                                        ...Typography.default('semiBold'),
-                                    }}>
-                                        {t('agentInput.effort.title')}
-                                    </Text>
-                                    {availableEffortLevels.map((level) => renderDesktopPickerOption(
-                                        level.key,
-                                        props.effortLevel?.key === level.key,
-                                        level.name,
-                                        level.description,
-                                        () => {
-                                            hapticsLight();
-                                            props.onEffortLevelChange?.(level);
-                                            closePicker();
-                                        },
-                                    ))}
-                                </View>
-                            </>
-                        )}
-                    </View>
-                </FloatingOverlay>
-            </View>
-        </>
-    ) : null;
-
-
-
-
     return (
         <View style={[
             styles.container,
@@ -1903,11 +1798,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     </View>
                 )}
 
-                {desktopSettingsOverlay}
-
                 {/* Permission, model, and effort pickers open independently
-                    from their matching controls in the compact composer action row. */}
-                {compactMobileComposer && !useNativeSettingsMenus && openPicker && (
+                    from their matching controls in every composer action row. */}
+                {openPicker && (!useNativeSettingsMenus || !compactMobileComposer) && (
                     <>
                         <AnimatedClickAwayBackdrop
                             onPress={closePicker}

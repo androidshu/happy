@@ -151,6 +151,25 @@ export type ThreadGoalClearResponse = {
     cleared: boolean;
 };
 
+export type AccountRateLimitWindow = {
+    usedPercent: number;
+    windowDurationMins: number | null;
+    resetsAt: number | null;
+};
+
+export type AccountRateLimitSnapshot = {
+    limitId?: string | null;
+    limitName?: string | null;
+    primary?: AccountRateLimitWindow | null;
+    secondary?: AccountRateLimitWindow | null;
+    rateLimitReachedType?: string | null;
+};
+
+export type AccountRateLimitsResponse = {
+    rateLimits?: AccountRateLimitSnapshot | null;
+    rateLimitsByLimitId?: Record<string, AccountRateLimitSnapshot> | null;
+};
+
 export type ForkConversationParams = {
     threadId: ThreadId;
     model?: string | null;

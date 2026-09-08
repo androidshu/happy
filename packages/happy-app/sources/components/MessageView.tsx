@@ -242,6 +242,7 @@ function AgentEventBlock(props: {
   event: AgentEvent;
   metadata: Metadata | null;
 }) {
+  const { theme } = useUnistyles();
   if (props.event.type === 'switch') {
     return (
       <View style={styles.agentEventContainer}>
@@ -250,6 +251,21 @@ function AgentEventBlock(props: {
     );
   }
   if (props.event.type === 'message') {
+    if (props.event.message === 'Context was reset') {
+      return (
+        <View style={styles.contextResetRow} accessibilityRole="text">
+          <View style={styles.contextResetLine} />
+          <View style={styles.contextResetBadge}>
+            <Ionicons name="refresh-circle-outline" size={17} color={theme.colors.textSecondary} />
+            <View style={styles.contextResetCopy}>
+              <Text style={styles.contextResetTitle}>{t('agentInput.context.clearedTitle')}</Text>
+              <Text style={styles.contextResetSubtitle}>{t('agentInput.context.clearedSubtitle')}</Text>
+            </View>
+          </View>
+          <View style={styles.contextResetLine} />
+        </View>
+      );
+    }
     return (
       <View style={styles.agentEventContainer}>
         <Text style={styles.agentEventText}>{props.event.message}</Text>
@@ -402,6 +418,41 @@ const styles = StyleSheet.create((theme) => ({
   agentEventText: {
     color: theme.colors.agentEventText,
     fontSize: 14,
+  },
+  contextResetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 16,
+    paddingVertical: 14,
+  },
+  contextResetLine: {
+    height: StyleSheet.hairlineWidth,
+    flex: 1,
+    backgroundColor: theme.colors.divider,
+  },
+  contextResetBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.glass.border,
+    backgroundColor: theme.colors.glass.backgroundSubtle,
+  },
+  contextResetCopy: {
+    flexDirection: 'column',
+  },
+  contextResetTitle: {
+    color: theme.colors.text,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  contextResetSubtitle: {
+    color: theme.colors.textSecondary,
+    fontSize: 10,
   },
   toolContainer: {
     marginHorizontal: 8,

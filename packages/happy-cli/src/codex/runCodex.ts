@@ -2,7 +2,8 @@ import { render } from "ink";
 import React from "react";
 import { ApiClient } from '@/api/api';
 import { CodexAppServerClient } from './codexAppServerClient';
-import type { ReasoningEffort } from './codexAppServerTypes';
+import type { AccountRateLimitSnapshot, AccountRateLimitsResponse, ReasoningEffort } from './codexAppServerTypes';
+import { codexUsageLimitsFromRateLimits, mergeCodexUsageLimits } from './codexUsageLimits';
 import { CodexPermissionHandler } from './utils/permissionHandler';
 import { ReasoningProcessor } from './utils/reasoningProcessor';
 import { DiffProcessor } from './utils/diffProcessor';
@@ -628,6 +629,16 @@ export async function runCodex(opts: {
             agentGoalStatus: goalStatus,
         }));
     };
+    const publishCodexUsageLimits = (
+        source: AccountRateLimitsResponse | AccountRateLimitSnapshot | null | undefined,
+    ) => {
+        const incoming = codexUsageLimitsFromRateLimits(source);
+        if (!incoming) return;
+        session.updateAgentState((currentState) => ({
+            ...currentState,
+            usageLimits: mergeCodexUsageLimits(currentState.usageLimits, incoming),
+        }));
+    };
     const handleCodexGoalCommand = async (
         command: CodexGoalCommand,
         threadId: string,
@@ -723,6 +734,10 @@ export async function runCodex(opts: {
     // Event handler: same EventMsg types as the legacy MCP server — no changes needed
     client.setEventHandler((msg) => {
         logger.debug(`[Codex] Event: ${JSON.stringify(msg)}`);
+        if (msg.type === 'account_rate_limits_updated') {
+            publishCodexUsageLimits(msg.rateLimits as AccountRateLimitSnapshot | undefined);
+            return;
+        }
         const isSubagentScopedEvent = hasCodexSubagentReference(msg as Record<string, unknown>);
 
         // Add messages to the ink UI buffer based on message type
@@ -848,6 +863,9 @@ export async function runCodex(opts: {
         logger.debug('[codex]: client.connect begin');
         await client.connect();
         logger.debug('[codex]: client.connect done');
+        void client.readAccountRateLimits()
+            .then(publishCodexUsageLimits)
+            .catch((error) => logger.debug('[Codex] Initial rate-limit snapshot unavailable:', error));
 
         if (opts.resumeThreadId) {
             await resumeExistingThread({

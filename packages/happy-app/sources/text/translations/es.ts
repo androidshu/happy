@@ -511,10 +511,13 @@ export const es: TranslationStructure = {
             percentContext: ({ percent }: { percent: number }) => `${percent}% contexto`,
             percentWeek: ({ percent }: { percent: number }) => `${percent}% semana`,
             remaining: ({ percent }: { percent: number }) => `${percent}% restante`,
+            clearedTitle: 'Contexto borrado',
+            clearedSubtitle: 'Los mensajes anteriores son solo historial',
         },
         usagePopup: {
             session: 'Sesión',
             week: 'Semana',
+            month: 'Mes',
             resets: ({ time }: { time: string }) => `Se restablece ${time}`,
         },
         suggestion: {

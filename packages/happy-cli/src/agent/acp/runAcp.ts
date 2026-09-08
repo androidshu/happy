@@ -526,7 +526,10 @@ export async function runAcp(opts: {
   permissionHandler.reset('Previous CLI process exited before responding');
   const sessionManager = new AcpSessionManager();
   const messageQueue = new MessageQueue2<AcpSwitchMode>((mode) => hashObject(mode));
-  let currentPermissionMode: string | undefined = opts.permissionMode;
+  // Qoder's ACP mode is a real permission control, so phone-controlled and
+  // terminal-started Qoder sessions share the same full-access default.
+  let currentPermissionMode: string | undefined = opts.permissionMode
+    ?? (opts.agentName === 'qoder' ? 'bypassPermissions' : undefined);
   let currentModel: string | null | undefined;
   let modeSelector: AcpConfigSelector | null = null;
   let modelSelector: AcpConfigSelector | null = null;

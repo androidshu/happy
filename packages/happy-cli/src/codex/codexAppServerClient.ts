@@ -35,6 +35,7 @@ import type {
     ThreadGoalSetResponse,
     ThreadGoalClearParams,
     ThreadGoalClearResponse,
+    AccountRateLimitsResponse,
     Thread,
     InterruptConversationParams,
     ReviewDecision,
@@ -298,6 +299,7 @@ export class CodexAppServerClient {
             || method === 'turn/completed'
             || method === 'thread/status/changed'
             || method === 'thread/tokenUsage/updated'
+            || method === 'account/rateLimits/updated'
             || method.startsWith('item/');
 
         if (!isRawNotification) {
@@ -418,6 +420,14 @@ export class CodexAppServerClient {
                     ...tokenUsage,
                 });
             }
+            return true;
+        }
+
+        if (method === 'account/rateLimits/updated') {
+            this.eventHandler?.({
+                type: 'account_rate_limits_updated',
+                rateLimits: params?.rateLimits,
+            });
             return true;
         }
 
@@ -950,6 +960,10 @@ export class CodexAppServerClient {
             threadId: opts.threadId,
         };
         return await this.request('thread/goal/clear', params) as ThreadGoalClearResponse;
+    }
+
+    async readAccountRateLimits(): Promise<AccountRateLimitsResponse> {
+        return await this.request('account/rateLimits/read') as AccountRateLimitsResponse;
     }
 
     async reconnectAndResumeThread(): Promise<boolean> {

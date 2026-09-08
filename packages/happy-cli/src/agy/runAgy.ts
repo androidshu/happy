@@ -110,7 +110,7 @@ export async function runAgy(opts: RunAgyOptions): Promise<void> {
 
   const backend = new AgyBackend({
     cwd: process.cwd(),
-    permissionMode: 'default',
+    permissionMode: 'bypassPermissions',
     model: DEFAULT_AGY_MODEL,
     log,
   });

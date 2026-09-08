@@ -600,7 +600,7 @@ describe('runAcp', () => {
     expect(mocks.backendState.setModelCalls).toEqual([]);
   });
 
-  it('applies the initial and live Qoder permission mode before another prompt', async () => {
+  it('defaults Qoder to YOLO and applies live permission changes before another prompt', async () => {
     mocks.backendState.startSessionMessages = [
       {
         type: 'event',
@@ -628,7 +628,6 @@ describe('runAcp', () => {
       agentName: 'qoder',
       command: 'qodercli',
       args: ['--acp'],
-      permissionMode: 'bypassPermissions',
     });
 
     await vi.waitFor(() => {

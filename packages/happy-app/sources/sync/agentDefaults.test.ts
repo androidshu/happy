@@ -8,12 +8,16 @@ describe('agent defaults', () => {
     it('uses full-access permission defaults for the phone-controlled code agents', () => {
         expect(getCodeAgentDefaults('claude').permissionMode).toBe('bypassPermissions');
         expect(getCodeAgentDefaults('codex').permissionMode).toBe('yolo');
+        expect(getCodeAgentDefaults('gemini').permissionMode).toBe('yolo');
+        expect(getCodeAgentDefaults('agy').permissionMode).toBe('bypassPermissions');
         expect(getCodeAgentDefaults('qoder').permissionMode).toBe('bypassPermissions');
     });
 
     it.each([
         ['claude', 'bypassPermissions'],
         ['codex', 'yolo'],
+        ['gemini', 'yolo'],
+        ['agy', 'bypassPermissions'],
         ['qoder', 'bypassPermissions'],
     ] as const)('keeps the %s full-access default independent of CLI version', (flavor, expected) => {
         expect(getCodeAgentDefaults(flavor, '1.2.0').permissionMode).toBe(expected);
@@ -42,9 +46,7 @@ describe('agent defaults', () => {
         ).permissionMode).toBe('auto');
     });
 
-    it('does not change non-code-agent defaults for an old CLI', () => {
-        expect(resolveAgentDefaultConfig({}, 'gemini', '1.0.0').permissionMode).toBe('default');
+    it('keeps the inert OpenClaw default unchanged', () => {
         expect(resolveAgentDefaultConfig({}, 'openclaw', '1.0.0').permissionMode).toBe('default');
-        expect(resolveAgentDefaultConfig({}, 'agy', '1.0.0').permissionMode).toBe('default');
     });
 });

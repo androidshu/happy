@@ -512,10 +512,13 @@ export const ja: TranslationStructure = {
             percentContext: ({ percent }: { percent: number }) => `コンテキスト ${percent}%`,
             percentWeek: ({ percent }: { percent: number }) => `週 ${percent}%`,
             remaining: ({ percent }: { percent: number }) => `残り ${percent}%`,
+            clearedTitle: 'コンテキストをクリアしました',
+            clearedSubtitle: '以前のメッセージは履歴としてのみ表示されます',
         },
         usagePopup: {
             session: 'セッション',
             week: '週',
+            month: '月',
             resets: ({ time }: { time: string }) => `リセット ${time}`,
         },
         suggestion: {

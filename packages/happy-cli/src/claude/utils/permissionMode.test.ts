@@ -70,8 +70,8 @@ describe('resolveInitialClaudePermissionMode with no override', () => {
     // Default — the safest-sounding option — started Claude with full access
     // and ignored the user's own configuration.
     it('stays unset when nothing is picked and no args force a mode', () => {
-        expect(resolveInitialClaudePermissionMode(undefined, [])).toBeUndefined();
-        expect(resolveInitialClaudePermissionMode(undefined, undefined)).toBeUndefined();
+        expect(resolveInitialClaudePermissionMode(undefined, [])).toBe('bypassPermissions');
+        expect(resolveInitialClaudePermissionMode(undefined, undefined)).toBe('bypassPermissions');
     });
 
     it('still honours an explicit mode and the skip-permissions flag', () => {

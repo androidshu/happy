@@ -511,10 +511,13 @@ export const zhHant: TranslationStructure = {
             percentContext: ({ percent }: { percent: number }) => `上下文 ${percent}%`,
             percentWeek: ({ percent }: { percent: number }) => `本週 ${percent}%`,
             remaining: ({ percent }: { percent: number }) => `剩餘 ${percent}%`,
+            clearedTitle: '上下文已清除',
+            clearedSubtitle: '先前訊息僅作為歷史記錄',
         },
         usagePopup: {
             session: '會話',
             week: '週',
+            month: '月',
             resets: ({ time }: { time: string }) => `重置於 ${time}`,
         },
         suggestion: {

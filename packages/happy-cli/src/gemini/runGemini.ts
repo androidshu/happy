@@ -212,7 +212,7 @@ export async function runGemini(opts: {
   const conversationHistory = new ConversationHistory({ maxMessages: 20, maxCharacters: 50000 });
 
   // Track current overrides to apply per message
-  let currentPermissionMode: PermissionMode | undefined = undefined;
+  let currentPermissionMode: PermissionMode | undefined = 'yolo';
   let currentModel: string | undefined = undefined;
 
   session.onUserMessage((message) => {
@@ -230,15 +230,9 @@ export async function runGemini(opts: {
         logger.debug(`[Gemini] Invalid permission mode received: ${message.meta.permissionMode}`);
       }
     } else {
-      logger.debug(`[Gemini] User message received with no permission mode override, using current: ${currentPermissionMode ?? 'default (effective)'}`);
+      logger.debug(`[Gemini] User message received with no permission mode override, using current: ${currentPermissionMode}`);
     }
     
-    // Initialize permission mode if not set yet
-    if (currentPermissionMode === undefined) {
-      currentPermissionMode = 'default';
-      updatePermissionMode('default');
-    }
-
     // Resolve model; explicit null resets to default (undefined)
     let messageModel = currentModel;
     if (message.meta?.hasOwnProperty('model')) {
@@ -530,6 +524,7 @@ export async function runGemini(opts: {
   const updatePermissionMode = (mode: PermissionMode) => {
     permissionHandler.setPermissionMode(mode);
   };
+  updatePermissionMode(currentPermissionMode);
 
   // Accumulate Gemini response text for sending complete message to mobile
   let accumulatedResponse = '';

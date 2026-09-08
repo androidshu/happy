@@ -1289,6 +1289,44 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
+    it('reads and forwards native account rate-limit snapshots', async () => {
+        const snapshot = {
+            limitId: 'codex',
+            primary: { usedPercent: 25, windowDurationMins: 10_080, resetsAt: 1_789_435_405 },
+            secondary: null,
+        };
+        const proc = createMockProcess({
+            pid: 3005,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'account/rateLimits/read' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, { id: msg.id, result: { rateLimits: snapshot } });
+                        pushJsonLine(stdout, {
+                            method: 'account/rateLimits/updated',
+                            params: { rateLimits: { ...snapshot, primary: { ...snapshot.primary, usedPercent: 26 } } },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((event) => events.push(event as Record<string, unknown>));
+
+        await client.connect();
+        await expect(client.readAccountRateLimits()).resolves.toEqual({ rateLimits: snapshot });
+        await waitFor(() => events.some((event) => event.type === 'account_rate_limits_updated'));
+        expect(events).toContainEqual({
+            type: 'account_rate_limits_updated',
+            rateLimits: { ...snapshot, primary: { ...snapshot.primary, usedPercent: 26 } },
+        });
+
+        await client.disconnect();
+    });
+
     it('maps raw file change items into legacy patch events', async () => {
         const proc = createMockProcess({
             pid: 3003,

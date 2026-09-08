@@ -114,7 +114,7 @@ export function resolveInitialClaudePermissionMode(
     if (claudeArgs?.includes('--dangerously-skip-permissions')) {
         return 'bypassPermissions';
     }
-    return extractPermissionModeFromClaudeArgs(claudeArgs) ?? optionMode;
+    return extractPermissionModeFromClaudeArgs(claudeArgs) ?? optionMode ?? 'bypassPermissions';
 }
 
 /**

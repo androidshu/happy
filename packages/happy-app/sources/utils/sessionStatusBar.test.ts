@@ -45,15 +45,17 @@ describe('usage limit helpers', () => {
         windows: [
             { id: 'five_hour', status: 'allowed', utilization: 42, resetsAt: 1 },
             { id: 'seven_day', status: 'allowed_warning', utilization: 91, resetsAt: 2 },
+            { id: 'thirty_day', status: 'allowed', utilization: 30, resetsAt: 3 },
             { id: 'seven_day_opus', utilization: 10, resetsAt: null },
         ],
     };
 
     it('builds dual chips from the well-known windows only', () => {
         const chips = getUsageLimitChips(limits, false);
-        expect(chips.map(c => c.id)).toEqual(['five_hour', 'seven_day']);
+        expect(chips.map(c => c.id)).toEqual(['five_hour', 'seven_day', 'thirty_day']);
         expect(chips[0].shortLabel).toBe('5h');
         expect(chips[1].status).toBe('allowed_warning');
+        expect(chips[2].shortLabel).toBe('30d');
     });
 
     it('collapses to the window closest to its limit when narrow', () => {

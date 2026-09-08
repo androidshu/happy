@@ -512,10 +512,13 @@ export const zhHans: TranslationStructure = {
             percentContext: ({ percent }: { percent: number }) => `上下文 ${percent}%`,
             percentWeek: ({ percent }: { percent: number }) => `本周 ${percent}%`,
             remaining: ({ percent }: { percent: number }) => `剩余 ${percent}%`,
+            clearedTitle: '上下文已清空',
+            clearedSubtitle: '此前消息仅作为历史记录',
         },
         usagePopup: {
             session: '会话',
             week: '周',
+            month: '月',
             resets: ({ time }: { time: string }) => `重置于 ${time}`,
         },
         suggestion: {

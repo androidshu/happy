@@ -47,6 +47,7 @@ export type UsageLimitStatus = 'allowed' | 'allowed_warning' | 'rejected';
 const CHIP_WINDOW_LABELS: Record<string, string> = {
     five_hour: '5h',
     seven_day: '7d',
+    thirty_day: '30d',
 };
 
 /**

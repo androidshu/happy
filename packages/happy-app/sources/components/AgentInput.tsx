@@ -802,23 +802,23 @@ function ContextGaugeIcon(props: { percent: number }) {
 
 type UsageRowProps = {
     contextStatus: { percent: number; detailText: string; color: string } | null;
-    weekPercent: number | null;
-    /** Prebuilt "Session — 32% · resets 6 PM" rows for the week popup. */
+    quotaItems: Array<{ id: string; label: string; percent: number }>;
+    /** Prebuilt quota rows with their reset times. */
     usageMenuOptions: NativeSettingsMenuOption[];
 };
 
-// Sits under the composer card, right-aligned with the effort label: week
-// quota (tap for the session/week detail popup) and the context gauge (tap
+// Sits under the composer card, right-aligned with the effort label: plan
+// quota (tap for reset details) and the context gauge (tap
 // to swap the percent for exact token counts).
 const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: UsageRowProps) {
     const { theme } = useUnistyles();
     const [showPreciseContext, setShowPreciseContext] = React.useState(false);
-    if (!p.contextStatus && p.weekPercent == null) {
+    if (!p.contextStatus && p.quotaItems.length === 0) {
         return null;
     }
-    const weekText = p.weekPercent != null ? (
+    const quotaText = p.quotaItems.length > 0 ? (
         <Text style={{ fontSize: 11, color: theme.colors.textSecondary, ...Typography.default() }}>
-            {t('agentInput.context.percentWeek', { percent: Math.round(p.weekPercent) })}
+            {p.quotaItems.map((item) => `${item.label} ${Math.round(item.percent)}%`).join(' · ')}
         </Text>
     ) : null;
     return (
@@ -833,7 +833,7 @@ const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: UsageRowPro
             paddingTop: 6,
             minHeight: 18,
         }}>
-            {weekText && (
+            {quotaText && (
                 p.usageMenuOptions.length > 0 ? (
                     <NativeSettingsMenu
                         anchor="bottom"
@@ -849,10 +849,10 @@ const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: UsageRowPro
                         {/* Native menu triggers hit only their own bounds, so
                             pad the target out and pull the layout back in. */}
                         <View style={{ padding: 10, margin: -10 }}>
-                            {weekText}
+                            {quotaText}
                         </View>
                     </NativeSettingsMenu>
-                ) : weekText
+                ) : quotaText
             )}
             {p.contextStatus && (
                 <Pressable
@@ -1032,22 +1032,32 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         ? getContextWarning(props.usageData.contextSize, props.alwaysShowContextSize ?? false, theme)
         : null;
 
-    // Usage row under the card: week quota + context gauge
+    // Usage row under the card: live plan quota + context gauge
     const usageLimitShowRemaining = useSetting('usageLimitShowRemaining');
     const contextStatus = props.usageData?.contextSize
         ? getContextStatus(props.usageData.contextSize, props.alwaysShowContextSize ?? false, theme, props.usageData.contextWindow)
         : null;
-    // Only Session and Week are user-meaningful; provider-internal windows
+    // Only Session, Week, and Month are user-meaningful; provider-internal windows
     // (nimbus_quill and friends) stay out of the popup.
     const usageRows = React.useMemo(() => {
         const rows = getUsageLimitRows(props.sessionStatusUsageLimits ?? null);
         const session = rows.find((row) => row.id === 'five_hour') ?? null;
         const week = rows.find((row) => row.id === 'seven_day') ?? null;
-        return { session, week };
+        const month = rows.find((row) => row.id === 'thirty_day') ?? null;
+        return { session, week, month };
     }, [props.sessionStatusUsageLimits]);
-    const weekPercent = usageRows.week?.utilization != null && (props.alwaysShowContextSize || contextStatus != null)
-        ? getUsageLimitDisplayPercentage(usageRows.week.utilization, usageLimitShowRemaining)
-        : null;
+    const quotaItems = React.useMemo(() => ([
+        usageRows.week?.utilization != null ? {
+            id: 'week',
+            label: '7d',
+            percent: getUsageLimitDisplayPercentage(usageRows.week.utilization, usageLimitShowRemaining),
+        } : null,
+        usageRows.month?.utilization != null ? {
+            id: 'month',
+            label: '30d',
+            percent: getUsageLimitDisplayPercentage(usageRows.month.utilization, usageLimitShowRemaining),
+        } : null,
+    ].filter((item): item is { id: string; label: string; percent: number } => item !== null)), [usageRows, usageLimitShowRemaining]);
     const usageMenuOptions = React.useMemo<NativeSettingsMenuOption[]>(() => {
         const options: NativeSettingsMenuOption[] = [];
         const push = (key: string, label: string, row: { utilization: number | null; resetsAt: number | null } | null) => {
@@ -1061,6 +1071,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         };
         push('session', t('agentInput.usagePopup.session'), usageRows.session);
         push('week', t('agentInput.usagePopup.week'), usageRows.week);
+        push('month', t('agentInput.usagePopup.month'), usageRows.month);
         return options;
     }, [usageRows, usageLimitShowRemaining]);
 
@@ -2373,7 +2384,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 <AnimatedFade visible={props.showStatusDetails !== false}>
                     <AgentInputUsageRow
                         contextStatus={contextStatus}
-                        weekPercent={weekPercent}
+                        quotaItems={quotaItems}
                         usageMenuOptions={usageMenuOptions}
                     />
                 </AnimatedFade>

@@ -39,6 +39,8 @@ export const zhHans: TranslationStructure = {
     },
 
     common: {
+        loadOlderMessages: '加载更早消息',
+        latestMessages: '最新消息',
         // Simple string constants
         cancel: '取消',
         authenticate: '认证',

@@ -3,7 +3,8 @@ import { useSession, useSessionMessages, useSetting } from "@/sync/storage";
 import { sync } from '@/sync/sync';
 import { ActivityIndicator, AppState, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, View } from 'react-native';
 import { useCallback } from 'react';
-import { FlashList, type FlashListRef } from '@shopify/flash-list';
+import { ManualTranscript } from './ManualTranscript';
+import { t } from '@/text';
 import { useHeaderHeight } from '@/utils/responsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessageView } from './MessageView';
@@ -14,12 +15,10 @@ import { Message } from '@/sync/typesMessage';
 import { DisplayItem, ToolGroupItem, useGroupedMessages } from '@/hooks/useGroupedMessages';
 import { Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { resolveControlMode } from '@/sync/controlHandoff';
 import { usesControlledSessionUi } from '@/sync/rig';
 import { buildAgentTurnCopyTextByMessageId } from '@/utils/agentTurnCopy';
 
 const SCROLL_THRESHOLD = 300;
-const WEB_BOTTOM_STICK_THRESHOLD = 50;
 const DOCK_DETAILS_SHOW_OFFSET = 16;
 const DOCK_DETAILS_HIDE_OFFSET = 48;
 // Visual gap between the button's bottom edge and the composer card's top
@@ -104,9 +103,7 @@ const ChatListInternal = React.memo((props: {
 }) => {
     const { theme } = useUnistyles();
     const nativeListRef = React.useRef<FlatList<DisplayItem>>(null);
-    const webListRef = React.useRef<FlashListRef<DisplayItem>>(null);
     const [showScrollButton, setShowScrollButton] = React.useState(false);
-    const [handoffListRevision, setHandoffListRevision] = React.useState(0);
     // Tracks whether the scroll-button is currently shown, so we only call
     // setShowScrollButton when the threshold is actually crossed instead of
     // on every scroll frame (60Hz). Without this guard, the entire list
@@ -114,7 +111,6 @@ const ChatListInternal = React.memo((props: {
     const showScrollButtonRef = React.useRef(false);
     const headerBackdropVisibleRef = React.useRef(false);
     const bottomDockVisibleRef = React.useRef(true);
-    const webShouldStickToBottomRef = React.useRef(true);
     const scrollMetricsRef = React.useRef({
         rawOffsetY: 0,
         offsetY: 0,
@@ -122,13 +118,12 @@ const ChatListInternal = React.memo((props: {
         viewportHeight: 0,
     });
     const scrollToListOffset = React.useCallback((offset: number, animated: boolean) => {
-        if (Platform.OS === 'web') {
-            webListRef.current?.scrollToOffset({ offset, animated });
-            return;
-        }
         nativeListRef.current?.scrollToOffset({ offset, animated });
     }, []);
     const preserveToolGroupAnchor = React.useCallback((anchor: ToolGroupLayoutAnchor) => {
+        if (Platform.OS === 'web') {
+            return;
+        }
         // Inverted FlatList rows keep their visual bottom edge fixed when their
         // height changes. Measure the pressed header after layout and offset the
         // list by the movement so details grow below it instead.
@@ -141,32 +136,13 @@ const ChatListInternal = React.memo((props: {
                 if (Math.abs(adjustment) < 0.5) {
                     return;
                 }
-                const nextOffset = Platform.OS === 'web'
-                    ? Math.max(0, scrollMetricsRef.current.rawOffsetY - adjustment)
-                    : Math.max(0, scrollMetricsRef.current.rawOffsetY + adjustment);
+                const nextOffset = Math.max(0, scrollMetricsRef.current.rawOffsetY + adjustment);
                 scrollMetricsRef.current.rawOffsetY = nextOffset;
                 scrollToListOffset(nextOffset, false);
             });
         });
     }, [scrollToListOffset]);
     const session = useSession(props.sessionId);
-    const controlMode = resolveControlMode(usesControlledSessionUi(session?.metadata) ? session?.agentState?.controlledByUser : false);
-    const previousControlModeRef = React.useRef(controlMode);
-
-    React.useEffect(() => {
-        if (previousControlModeRef.current === controlMode) {
-            return;
-        }
-        previousControlModeRef.current = controlMode;
-        if (Platform.OS !== 'web') {
-            return;
-        }
-        if (showScrollButtonRef.current) {
-            showScrollButtonRef.current = false;
-            setShowScrollButton(false);
-        }
-        setHandoffListRevision((revision) => revision + 1);
-    }, [controlMode]);
 
     // Collapse agent work between a user prompt and the final answer.
     // Nested tool groups remain expandable inside the work block.
@@ -179,24 +155,13 @@ const ChatListInternal = React.memo((props: {
         () => ({ collapseCurrentTurn }),
         [collapseCurrentTurn],
     );
-    const displayItems = useGroupedMessages(props.messages, groupToolCalls, groupingOptions);
-    // React Native Web's inverted VirtualizedList rewrites scrollTop in its
-    // wheel handler and does not implement maintainVisibleContentPosition.
-    // FlashList consumes chronological data and anchors visible rows itself,
-    // avoiding both sources of viewport drift in the macOS Tauri app.
+    // Desktop keeps stable individual rows. Task state must not replace the
+    // content the user is reading with an automatically collapsed work group.
+    const displayItems = useGroupedMessages(props.messages, Platform.OS !== 'web' && groupToolCalls, groupingOptions);
     const webDisplayItems = React.useMemo(
         () => Platform.OS === 'web' ? [...displayItems].reverse() : displayItems,
         [displayItems],
     );
-    React.useLayoutEffect(() => {
-        if (Platform.OS !== 'web' || !webShouldStickToBottomRef.current) {
-            return;
-        }
-        const frame = requestAnimationFrame(() => {
-            webListRef.current?.scrollToEnd({ animated: false });
-        });
-        return () => cancelAnimationFrame(frame);
-    }, [webDisplayItems]);
     const agentCopyTextByMessageId = React.useMemo(
         () => buildAgentTurnCopyTextByMessageId(props.messages, { currentTurnComplete: collapseCurrentTurn }),
         [collapseCurrentTurn, props.messages],
@@ -420,9 +385,6 @@ const ChatListInternal = React.memo((props: {
         const offsetY = Platform.OS === 'web'
             ? Math.max(0, contentHeight - viewportHeight - rawOffsetY)
             : rawOffsetY;
-        if (Platform.OS === 'web') {
-            webShouldStickToBottomRef.current = offsetY <= WEB_BOTTOM_STICK_THRESHOLD;
-        }
         scrollMetricsRef.current.rawOffsetY = rawOffsetY;
         scrollMetricsRef.current.offsetY = offsetY;
         scrollMetricsRef.current.contentHeight = contentHeight;
@@ -437,10 +399,6 @@ const ChatListInternal = React.memo((props: {
     }, [updateBottomDockVisibility, updateHeaderBackdropVisibility]);
 
     const scrollToBottom = useCallback(() => {
-        if (Platform.OS === 'web') {
-            webListRef.current?.scrollToEnd({ animated: true });
-            return;
-        }
         nativeListRef.current?.scrollToOffset({ offset: 0, animated: true });
     }, []);
 
@@ -464,59 +422,29 @@ const ChatListInternal = React.memo((props: {
         updateHeaderBackdropVisibility();
     }, [updateHeaderBackdropVisibility]);
 
-    // On macOS/web, Shift+wheel swaps deltaX/deltaY — restore vertical scrolling
-    React.useEffect(() => {
-        if (Platform.OS !== 'web') return;
-        const node = webListRef.current?.getScrollableNode?.() as HTMLElement | undefined;
-        if (!node) return;
-        const handler = (e: WheelEvent) => {
-            if (e.shiftKey && Math.abs(e.deltaX) > 0 && Math.abs(e.deltaY) < 1) {
-                node.scrollTop += e.deltaX;
-                e.preventDefault();
-            }
-        };
-        node.addEventListener('wheel', handler, { passive: false });
-        return () => node.removeEventListener('wheel', handler);
-    }, []);
-
     return (
         <View style={{ flex: 1 }}>
             {Platform.OS === 'web' ? (
-                <FlashList
-                    key={`${props.sessionId}:${handoffListRevision}`}
-                    ref={webListRef}
-                    data={webDisplayItems}
-                    keyExtractor={keyExtractor}
-                    maintainVisibleContentPosition={{
-                        startRenderingFromBottom: true,
-                        // Message growth is pinned by the webDisplayItems
-                        // layout effect. FlashList also reruns its
-                        // built-in bottom autoscroll when the viewport height
-                        // changes; the desktop composer resizes while typing,
-                        // so enabling it here makes the transcript jump on
-                        // every wrapped/unwrapped line.
-                    }}
-                    keyboardShouldPersistTaps="handled"
-                    keyboardDismissMode="none"
-                    contentContainerStyle={{ paddingBottom: 8 + (props.bottomContentInset ?? 0) }}
-                    renderItem={renderItem}
-                    onScroll={handleScroll}
-                    scrollEventThrottle={16}
-                    onLayout={handleListLayout}
-                    onContentSizeChange={handleContentSizeChange}
-                    ListHeaderComponent={(
-                        <ListHeader
-                            isLoadingOlder={props.isLoadingOlder}
-                            topContentInset={props.topContentInset}
-                        />
-                    )}
-                    ListFooterComponent={<ListFooter sessionId={props.sessionId} />}
-                    onStartReached={handleLoadOlder}
-                    onStartReachedThreshold={0.5}
+                <ManualTranscript
+                    key={props.sessionId}
+                    items={webDisplayItems}
+                    renderItem={(index) => renderItem({ item: webDisplayItems[index] })}
+                    topInset={props.topContentInset}
+                    bottomInset={props.bottomContentInset}
+                    footer={<ListFooter sessionId={props.sessionId} />}
+                    hasMore={props.hasMoreOlder}
+                    loading={props.isLoadingOlder}
+                    loadOlder={() => sync.loadOlderMessages(props.sessionId)}
+                    loadLabel={t('common.loadOlderMessages')}
+                    loadingLabel={t('common.loading')}
+                    errorLabel={t('common.retry')}
+                    bottomLabel={t('common.latestMessages')}
+                    color={theme.colors.text}
+                    backgroundColor={theme.colors.surface}
                 />
             ) : (
                 <FlatList
-                    key={`${props.sessionId}:${handoffListRevision}`}
+                    key={props.sessionId}
                     ref={nativeListRef}
                     data={displayItems}
                     inverted={true}
@@ -557,7 +485,7 @@ const ChatListInternal = React.memo((props: {
                     onEndReachedThreshold={0.5}
                 />
             )}
-            {showScrollButton && (
+            {Platform.OS !== 'web' && showScrollButton && (
                 <View style={[
                     styles.scrollButtonContainer,
                     {

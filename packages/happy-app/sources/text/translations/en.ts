@@ -52,6 +52,8 @@ export const en: TranslationStructure = {
     },
 
     common: {
+        loadOlderMessages: 'Load older messages',
+        latestMessages: 'Latest messages',
         // Simple string constants
         cancel: 'Cancel',
         authenticate: 'Authenticate',

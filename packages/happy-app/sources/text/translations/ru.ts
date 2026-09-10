@@ -48,6 +48,8 @@ export const ru: TranslationStructure = {
     },
 
     common: {
+        loadOlderMessages: 'Загрузить предыдущие сообщения',
+        latestMessages: 'Последние сообщения',
         // Simple string constants
         cancel: 'Отмена',
         authenticate: 'Авторизация',

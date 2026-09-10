@@ -39,6 +39,8 @@ export const zhHant: TranslationStructure = {
     },
 
     common: {
+        loadOlderMessages: '載入更早訊息',
+        latestMessages: '最新訊息',
         // Simple string constants
         cancel: '取消',
         authenticate: '驗證',

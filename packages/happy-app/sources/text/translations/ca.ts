@@ -37,6 +37,8 @@ export const ca: TranslationStructure = {
     },
 
     common: {
+        loadOlderMessages: 'Carrega missatges anteriors',
+        latestMessages: 'Missatges més recents',
         // Simple string constants
         cancel: 'Cancel·la',
         authenticate: 'Autentica',

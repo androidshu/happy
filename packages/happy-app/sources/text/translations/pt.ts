@@ -37,6 +37,8 @@ export const pt: TranslationStructure = {
     },
 
     common: {
+        loadOlderMessages: 'Carregar mensagens anteriores',
+        latestMessages: 'Mensagens mais recentes',
         // Simple string constants
         cancel: 'Cancelar',
         authenticate: 'Autenticar',

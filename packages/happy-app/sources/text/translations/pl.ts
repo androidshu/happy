@@ -48,6 +48,8 @@ export const pl: TranslationStructure = {
     },
 
     common: {
+        loadOlderMessages: 'Wczytaj starsze wiadomości',
+        latestMessages: 'Najnowsze wiadomości',
         // Simple string constants
         cancel: 'Anuluj',
         authenticate: 'Uwierzytelnij',

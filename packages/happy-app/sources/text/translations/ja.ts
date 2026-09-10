@@ -40,6 +40,8 @@ export const ja: TranslationStructure = {
     },
 
     common: {
+        loadOlderMessages: '以前のメッセージを読み込む',
+        latestMessages: '最新のメッセージ',
         // Simple string constants
         cancel: 'キャンセル',
         authenticate: '認証',

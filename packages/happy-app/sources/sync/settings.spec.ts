@@ -15,6 +15,11 @@ describe('settings', () => {
             expect(settingsParse({})).toEqual(settingsDefaults);
         });
 
+        it('defaults quota to remaining while preserving an existing used preference', () => {
+            expect(settingsParse({}).usageLimitShowRemaining).toBe(true);
+            expect(settingsParse({ usageLimitShowRemaining: false }).usageLimitShowRemaining).toBe(false);
+        });
+
         it('should parse valid settings object', () => {
             const validSettings = {
                 viewInline: true
@@ -197,7 +202,7 @@ describe('settings', () => {
                 showFlavorIcons: false,
                 showHarnessIconInSessionHeader: true,
                 userMessageBubbleColor: 'gray',
-                usageLimitShowRemaining: false,
+                usageLimitShowRemaining: true,
                 hideInactiveSessions: true,
                 sortSessionsByActivity: true,
                 expResumeSession: true,

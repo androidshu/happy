@@ -526,13 +526,17 @@ export const ru: TranslationStructure = {
         },
         context: {
             detailContext: ({ used, total }: { used: string; total: string }) => `Контекст ${used} / ${total}`,
-            percentContext: ({ percent }: { percent: number }) => `${percent}% контекста`,
+            percentContext: ({ percent }: { percent: number }) => `Использовано контекста ${percent}%`,
             percentWeek: ({ percent }: { percent: number }) => `${percent}% за неделю`,
             remaining: ({ percent }: { percent: number }) => `Осталось ${percent}%`,
             clearedTitle: 'Контекст очищен',
             clearedSubtitle: 'Предыдущие сообщения — только история',
         },
         usagePopup: {
+            unknown: 'неизвестно',
+            summary: ({ title, fiveHour, sevenDay, context, used }: { title: string; fiveHour: string; sevenDay: string; context: string; used: string }) => `${title}, 5h:${fiveHour}, 7d:${sevenDay}, context:${context}, used:${used}`,
+            remaining: 'Остаток квоты',
+            used: 'Использовано квоты',
             session: 'Сессия',
             week: 'Неделя',
             month: 'Месяц',

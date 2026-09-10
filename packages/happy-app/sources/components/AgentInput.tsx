@@ -1,5 +1,4 @@
 import { Ionicons, Octicons } from '@expo/vector-icons';
-import Svg, { Circle } from 'react-native-svg';
 import * as React from 'react';
 import { Keyboard, View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable, LayoutChangeEvent } from 'react-native';
 import { Image } from 'expo-image';
@@ -24,9 +23,8 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSetting } from '@/sync/storage';
 import { hackMode, hackModes } from '@/sync/modeHacks';
 import { getPermissionModeMenuLabel, getPermissionModeShortLabel } from '@/utils/permissionModeLabels';
-import { getUsageLimitDisplayPercentage, getUsageLimitRows, formatUsageLimitResetTime, type UsageLimitsLike } from '@/utils/sessionStatusBar';
+import { getUsageLimitDisplayPercentage, getComposerUsageRows, formatUsageLimitResetTime, type UsageLimitsLike } from '@/utils/sessionStatusBar';
 import { compactCount } from '@/utils/rigGitLineChanges';
-import { Theme } from '@/theme';
 import { t } from '@/text';
 import { Metadata } from '@/sync/storageTypes';
 import { isRunningOnMac } from '@/utils/platform';
@@ -45,6 +43,7 @@ import {
     resolveMobileComposerMenuGeometry,
 } from './agentInputLayout';
 import { shouldUseExpoNativeSettingsMenu } from './glassInteractionPolicy';
+import { AgentInputMetrics } from './AgentInputMetrics';
 
 interface AgentInputProps {
     // `initialValue` seeds the uncontrolled textarea once; keystrokes never
@@ -494,65 +493,6 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     },
 }));
 
-const MAX_CONTEXT_SIZE = 190000;
-
-const getContextWarning = (contextSize: number, alwaysShow: boolean = false, theme: Theme) => {
-    const percentageUsed = (contextSize / MAX_CONTEXT_SIZE) * 100;
-    const percentageRemaining = Math.max(0, Math.min(100, 100 - percentageUsed));
-
-    if (percentageRemaining <= 5) {
-        return { text: t('agentInput.context.remaining', { percent: Math.round(percentageRemaining) }), color: theme.colors.warningCritical };
-    } else if (percentageRemaining <= 10) {
-        return { text: t('agentInput.context.remaining', { percent: Math.round(percentageRemaining) }), color: theme.colors.warning };
-    } else if (alwaysShow) {
-        // Show context remaining in neutral color when not near limit
-        return { text: t('agentInput.context.remaining', { percent: Math.round(percentageRemaining) }), color: theme.colors.warning };
-    }
-    return null; // No display needed
-};
-
-const formatTokenCount = (tokens: number): string => {
-    if (tokens < 1000) {
-        return `${Math.max(0, Math.round(tokens))}`;
-    }
-    if (tokens < 999500) {
-        return `${Math.round(tokens / 1000)}k`;
-    }
-    const millions = tokens / 1000000;
-    return `${millions >= 10 ? Math.round(millions) : Math.round(millions * 10) / 10}M`;
-};
-
-const getContextStatus = (contextSize: number, alwaysShow: boolean = false, theme: Theme, contextWindow: number | undefined) => {
-    // Until the session reports its window there is no honest denominator, so
-    // nothing is shown rather than dividing by a guess — a percentage that
-    // later corrects itself upward reads as the context refilling.
-    if (typeof contextWindow !== 'number' || !Number.isFinite(contextWindow) || contextWindow <= 0) {
-        return null;
-    }
-    const percentageUsed = Math.max(0, Math.min(100, (contextSize / contextWindow) * 100));
-    const percentageRemaining = 100 - percentageUsed;
-
-    let color: string;
-    if (percentageRemaining <= 5) {
-        color = theme.colors.warningCritical;
-    } else if (percentageRemaining <= 10) {
-        color = theme.colors.warning;
-    } else if (alwaysShow) {
-        color = theme.colors.textSecondary;
-    } else {
-        return null; // No display needed
-    }
-
-    return {
-        percent: Math.round(percentageUsed),
-        detailText: t('agentInput.context.detailContext', {
-            used: formatTokenCount(contextSize),
-            total: formatTokenCount(contextWindow),
-        }),
-        color,
-    };
-};
-
 // Stable sub-trees extracted from AgentInput so they don't reconcile when
 // the input's keystroke-derived state (hasText / inputState) flips. Their
 // props are derived from session metadata, not from the textarea content,
@@ -562,7 +502,6 @@ type StatusRowProps = {
     connectionStatus?: AgentInputProps['connectionStatus'];
     gitBranch: string | null;
     gitChanges: { insertions: number; deletions: number; approximate: boolean } | null;
-    contextWarning: { text: string; color: string } | null;
     displayPermissionMode: ReturnType<typeof hackMode> | null;
     permissionModeKey: string;
     isSandboxedYoloMode: boolean;
@@ -626,7 +565,7 @@ const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRow
         : usageMax >= 80
             ? theme.colors.warning
             : theme.colors.textSecondary;
-    if (!p.connectionStatus && !p.contextWarning && usageParts.length === 0 && !showPermissionBadge) {
+    if (!p.connectionStatus && usageParts.length === 0 && !showPermissionBadge) {
         return null;
     }
     return (
@@ -713,24 +652,14 @@ const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRow
                         )}
                     </>
                 )}
-                {p.contextWarning && (
-                    <Text style={{
-                        fontSize: 11,
-                        color: p.contextWarning.color,
-                        marginLeft: p.connectionStatus ? 8 : 0,
-                        ...Typography.default()
-                    }}>
-                        {p.connectionStatus ? '• ' : ''}{p.contextWarning.text}
-                    </Text>
-                )}
                 {usageParts.length > 0 && (
                     <Text style={{
                         fontSize: 11,
                         color: usageColor,
-                        marginLeft: (p.connectionStatus || p.contextWarning) ? 8 : 0,
+                        marginLeft: p.connectionStatus ? 8 : 0,
                         ...Typography.default()
                     }}>
-                        {(p.connectionStatus || p.contextWarning) ? '• ' : ''}{usageParts.join(' · ')}
+                        {p.connectionStatus ? '• ' : ''}{usageParts.join(' · ')}
                     </Text>
                 )}
             </View>
@@ -759,118 +688,6 @@ const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRow
     );
 });
 
-// Grayscale ring that fills and darkens with context usage — reads at a
-// glance without color, sized to sit beside the 11pt status text.
-function ContextGaugeIcon(props: { percent: number }) {
-    const { theme } = useUnistyles();
-    const size = 14;
-    const strokeWidth = 2.5;
-    const radius = (size - strokeWidth) / 2;
-    const circumference = 2 * Math.PI * radius;
-    const progress = Math.min(100, Math.max(0, props.percent));
-    const intensity = 0.35 + 0.65 * (progress / 100);
-    const color = theme.dark
-        ? `rgba(255, 255, 255, ${intensity})`
-        : `rgba(0, 0, 0, ${intensity})`;
-    return (
-        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-            <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                stroke={theme.colors.divider}
-                strokeWidth={strokeWidth}
-                fill="none"
-            />
-            <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                stroke={color}
-                strokeWidth={strokeWidth}
-                strokeLinecap="round"
-                fill="none"
-                strokeDasharray={`${circumference} ${circumference}`}
-                strokeDashoffset={circumference * (1 - progress / 100)}
-                rotation="-90"
-                originX={size / 2}
-                originY={size / 2}
-            />
-        </Svg>
-    );
-}
-
-type UsageRowProps = {
-    contextStatus: { percent: number; detailText: string; color: string } | null;
-    quotaItems: Array<{ id: string; label: string; percent: number }>;
-    /** Prebuilt quota rows with their reset times. */
-    usageMenuOptions: NativeSettingsMenuOption[];
-};
-
-// Sits under the composer card, right-aligned with the effort label: plan
-// quota (tap for reset details) and the context gauge (tap
-// to swap the percent for exact token counts).
-const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: UsageRowProps) {
-    const { theme } = useUnistyles();
-    const [showPreciseContext, setShowPreciseContext] = React.useState(false);
-    if (!p.contextStatus && p.quotaItems.length === 0) {
-        return null;
-    }
-    const quotaText = p.quotaItems.length > 0 ? (
-        <Text style={{ fontSize: 11, color: theme.colors.textSecondary, ...Typography.default() }}>
-            {p.quotaItems.map((item) => `${item.label} ${Math.round(item.percent)}%`).join(' · ')}
-        </Text>
-    ) : null;
-    return (
-        <View style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            gap: 10,
-            // 18 = 10pt shell inset + 8pt action inset: lines the gauge up
-            // with the effort label's right edge.
-            paddingHorizontal: 18,
-            paddingTop: 6,
-            minHeight: 18,
-        }}>
-            {quotaText && (
-                p.usageMenuOptions.length > 0 ? (
-                    <NativeSettingsMenu
-                        anchor="bottom"
-                        groups={[{
-                            key: 'usage',
-                            label: '',
-                            title: '',
-                            options: p.usageMenuOptions,
-                            selectedKey: null,
-                            onSelect: () => { },
-                        }]}
-                    >
-                        {/* Native menu triggers hit only their own bounds, so
-                            pad the target out and pull the layout back in. */}
-                        <View style={{ padding: 10, margin: -10 }}>
-                            {quotaText}
-                        </View>
-                    </NativeSettingsMenu>
-                ) : quotaText
-            )}
-            {p.contextStatus && (
-                <Pressable
-                    onPress={() => setShowPreciseContext((current) => !current)}
-                    hitSlop={{ top: 12, bottom: 14, left: 10, right: 14 }}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}
-                >
-                    <Text style={{ fontSize: 11, color: p.contextStatus.color, ...Typography.default() }}>
-                        {showPreciseContext
-                            ? p.contextStatus.detailText
-                            : t('agentInput.context.percentContext', { percent: p.contextStatus.percent })}
-                    </Text>
-                    <ContextGaugeIcon percent={p.contextStatus.percent} />
-                </Pressable>
-            )}
-        </View>
-    );
-});
 
 type ContextChipsProps = {
     machineName?: string | null;
@@ -1027,37 +844,17 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         return label;
     }, [isSandboxEnabled]);
 
-    // Calculate context warning
-    const contextWarning = props.usageData?.contextSize
-        ? getContextWarning(props.usageData.contextSize, props.alwaysShowContextSize ?? false, theme)
-        : null;
-
     // Usage row under the card: live plan quota + context gauge
     const usageLimitShowRemaining = useSetting('usageLimitShowRemaining');
-    const contextStatus = props.usageData?.contextSize
-        ? getContextStatus(props.usageData.contextSize, props.alwaysShowContextSize ?? false, theme, props.usageData.contextWindow)
-        : null;
-    // Only Session, Week, and Month are user-meaningful; provider-internal windows
-    // (nimbus_quill and friends) stay out of the popup.
-    const usageRows = React.useMemo(() => {
-        const rows = getUsageLimitRows(props.sessionStatusUsageLimits ?? null);
-        const session = rows.find((row) => row.id === 'five_hour') ?? null;
-        const week = rows.find((row) => row.id === 'seven_day') ?? null;
-        const month = rows.find((row) => row.id === 'thirty_day') ?? null;
-        return { session, week, month };
-    }, [props.sessionStatusUsageLimits]);
-    const quotaItems = React.useMemo(() => ([
-        usageRows.week?.utilization != null ? {
-            id: 'week',
-            label: '7d',
-            percent: getUsageLimitDisplayPercentage(usageRows.week.utilization, usageLimitShowRemaining),
-        } : null,
-        usageRows.month?.utilization != null ? {
-            id: 'month',
-            label: '30d',
-            percent: getUsageLimitDisplayPercentage(usageRows.month.utilization, usageLimitShowRemaining),
-        } : null,
-    ].filter((item): item is { id: string; label: string; percent: number } => item !== null)), [usageRows, usageLimitShowRemaining]);
+    const usageRows = React.useMemo(
+        () => getComposerUsageRows(props.sessionStatusUsageLimits),
+        [props.sessionStatusUsageLimits],
+    );
+    const quotaItems = React.useMemo(() => usageRows.flatMap(row => row.utilization == null ? [] : [{
+        id: row.id,
+        label: row.label,
+        percent: getUsageLimitDisplayPercentage(row.utilization, usageLimitShowRemaining),
+    }]), [usageRows, usageLimitShowRemaining]);
     const usageMenuOptions = React.useMemo<NativeSettingsMenuOption[]>(() => {
         const options: NativeSettingsMenuOption[] = [];
         const push = (key: string, label: string, row: { utilization: number | null; resetsAt: number | null } | null) => {
@@ -1067,11 +864,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             const reset = row.resetsAt != null
                 ? `\n${t('agentInput.usagePopup.resets', { time: formatUsageLimitResetTime(row.resetsAt) })}`
                 : '';
-            options.push({ key, label: `${label} · ${Math.round(percent)}%${reset}` });
+            const meaning = t(usageLimitShowRemaining ? 'agentInput.usagePopup.remaining' : 'agentInput.usagePopup.used');
+            options.push({ key, label: `${label} · ${meaning} ${Math.round(percent)}%${reset}` });
         };
-        push('session', t('agentInput.usagePopup.session'), usageRows.session);
-        push('week', t('agentInput.usagePopup.week'), usageRows.week);
-        push('month', t('agentInput.usagePopup.month'), usageRows.month);
+        for (const row of usageRows) push(row.id, row.label, row);
         return options;
     }, [usageRows, usageLimitShowRemaining]);
 
@@ -2077,7 +1873,6 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         connectionStatus={props.connectionStatus}
                         gitBranch={props.sessionStatusGitBranch ?? null}
                         gitChanges={props.sessionStatusGitChanges ?? null}
-                        contextWarning={contextWarning}
                         displayPermissionMode={displayPermissionMode}
                         permissionModeKey={permissionModeKey}
                         isSandboxedYoloMode={isSandboxedYoloMode}
@@ -2381,13 +2176,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     </View>
                 </Shaker>
 
-                <AnimatedFade visible={props.showStatusDetails !== false}>
-                    <AgentInputUsageRow
-                        contextStatus={contextStatus}
-                        quotaItems={quotaItems}
-                        usageMenuOptions={usageMenuOptions}
-                    />
-                </AnimatedFade>
+                <AgentInputMetrics
+                    context={props.usageData}
+                    items={quotaItems}
+                    details={usageMenuOptions}
+                    showRemaining={usageLimitShowRemaining}
+                    showUnavailable={!!props.sessionId}
+                />
             </View>
         </View>
     );

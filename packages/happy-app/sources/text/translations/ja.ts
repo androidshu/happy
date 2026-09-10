@@ -511,13 +511,17 @@ export const ja: TranslationStructure = {
         },
         context: {
             detailContext: ({ used, total }: { used: string; total: string }) => `コンテキスト ${used} / ${total}`,
-            percentContext: ({ percent }: { percent: number }) => `コンテキスト ${percent}%`,
+            percentContext: ({ percent }: { percent: number }) => `コンテキスト使用済み ${percent}%`,
             percentWeek: ({ percent }: { percent: number }) => `週 ${percent}%`,
             remaining: ({ percent }: { percent: number }) => `残り ${percent}%`,
             clearedTitle: 'コンテキストをクリアしました',
             clearedSubtitle: '以前のメッセージは履歴としてのみ表示されます',
         },
         usagePopup: {
+            unknown: '不明',
+            summary: ({ title, fiveHour, sevenDay, context, used }: { title: string; fiveHour: string; sevenDay: string; context: string; used: string }) => `${title}, 5h:${fiveHour}, 7d:${sevenDay}, context:${context}, used:${used}`,
+            remaining: 'プラン残量',
+            used: 'プラン使用量',
             session: 'セッション',
             week: '週',
             month: '月',

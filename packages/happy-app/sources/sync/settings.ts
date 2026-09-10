@@ -123,7 +123,7 @@ export const settingsDefaults: Settings = {
     showFlavorIcons: false,
     showHarnessIconInSessionHeader: true,
     userMessageBubbleColor: DEFAULT_USER_MESSAGE_BUBBLE_COLOR,
-    usageLimitShowRemaining: false,
+    usageLimitShowRemaining: true,
 
     hideInactiveSessions: true,
     sortSessionsByActivity: true,

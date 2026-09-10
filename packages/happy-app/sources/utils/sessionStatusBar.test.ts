@@ -4,6 +4,9 @@ import {
     formatUsageLimitAge,
     getContextUsageLevel,
     getContextUsagePercentage,
+    getContextUsageSummary,
+    getComposerUsageRows,
+    formatContextTokenCount,
     getUsageLimitChips,
     getUsageLimitDisplayPercentage,
     getUsageLimitRows,
@@ -11,6 +14,37 @@ import {
 } from './sessionStatusBar';
 
 describe('session status bar helpers', () => {
+    it.each([[0, '0'], [999, '999'], [1000, '1K'], [310000, '310K'], [475000, '475K'],
+        [999500, '1M'], [1000000, '1M'], [1250000, '1.25M']] as const)('formats %s tokens as %s', (value, expected) => {
+        expect(formatContextTokenCount(value)).toBe(expected);
+    });
+    it('keeps invalid or missing token counts unknown, including a zero window', () => {
+        for (const value of [undefined, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+            expect(formatContextTokenCount(value)).toBeNull();
+        }
+        expect(formatContextTokenCount(0, false)).toBeNull();
+    });
+    it('uses the reported model window instead of a fixed 190k denominator', () => {
+        expect(getContextUsageSummary(176700, 1000000)).toMatchObject({
+            used: 176700, total: 1000000, level: 'normal',
+        });
+        expect(getContextUsageSummary(176700, 1000000)?.percent).toBeCloseTo(17.67);
+        expect(getContextUsageSummary(176700, 200000)?.percent).toBeCloseTo(88.35);
+    });
+
+    it.each([undefined, null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY])('hides context without a valid window: %s', total => {
+        expect(getContextUsageSummary(176700, total)).toBeNull();
+    });
+
+    it.each([undefined, null, -1, Number.NaN, Number.POSITIVE_INFINITY])('hides invalid usage rather than fabricating remaining quota: %s', used => {
+        expect(getContextUsageSummary(used, 1000000)).toBeNull();
+    });
+
+    it('accepts an empty context after compact and uses real-window warning thresholds', () => {
+        expect(getContextUsageSummary(0, 1000000)?.percent).toBe(0);
+        expect(getContextUsageSummary(900000, 1000000)?.level).toBe('warning');
+        expect(getContextUsageSummary(950000, 1000000)?.level).toBe('critical');
+    });
     it('clamps context values to the valid range', () => {
         expect(clampContextSize(-10, 100)).toBe(0);
         expect(clampContextSize(50, 100)).toBe(50);
@@ -49,6 +83,13 @@ describe('usage limit helpers', () => {
             { id: 'seven_day_opus', utilization: 10, resetsAt: null },
         ],
     };
+
+    it('shows only 5h and 7d in the composer and its details, never 30d', () => {
+        expect(getComposerUsageRows(limits).map(row => [row.id, row.label])).toEqual([
+            ['five_hour', '5h'], ['seven_day', '7d'],
+        ]);
+        expect(getComposerUsageRows({ capturedAt: 1, windows: [{ id: 'thirty_day', utilization: 20 }] })).toEqual([]);
+    });
 
     it('builds dual chips from the well-known windows only', () => {
         const chips = getUsageLimitChips(limits, false);

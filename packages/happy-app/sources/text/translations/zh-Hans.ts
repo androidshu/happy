@@ -511,13 +511,17 @@ export const zhHans: TranslationStructure = {
         },
         context: {
             detailContext: ({ used, total }: { used: string; total: string }) => `上下文 ${used} / ${total}`,
-            percentContext: ({ percent }: { percent: number }) => `上下文 ${percent}%`,
+            percentContext: ({ percent }: { percent: number }) => `上下文已用 ${percent}%`,
             percentWeek: ({ percent }: { percent: number }) => `本周 ${percent}%`,
             remaining: ({ percent }: { percent: number }) => `剩余 ${percent}%`,
             clearedTitle: '上下文已清空',
             clearedSubtitle: '此前消息仅作为历史记录',
         },
         usagePopup: {
+            unknown: '未知',
+            summary: ({ title, fiveHour, sevenDay, context, used }: { title: string; fiveHour: string; sevenDay: string; context: string; used: string }) => `${title}，5小时：${fiveHour}，7天：${sevenDay}，context:${context}, used:${used}`,
+            remaining: '套餐剩余',
+            used: '套餐已用',
             session: '会话',
             week: '周',
             month: '月',

@@ -27,6 +27,22 @@ export function getContextUsageLevel(value: number | null | undefined, maxValue:
     return 'normal';
 }
 
+/** No guessed window or fabricated zero when the backend has not reported usage. */
+export function getContextUsageSummary(used: number | null | undefined, total: number | null | undefined) {
+    if (typeof used !== 'number' || !Number.isFinite(used) || used < 0
+        || typeof total !== 'number' || !Number.isFinite(total) || total <= 0) {
+        return null;
+    }
+    return { used, total, percent: getContextUsagePercentage(used, total), level: getContextUsageLevel(used, total) };
+}
+
+export function formatContextTokenCount(value: number | undefined, allowZero = true): string | null {
+    if (typeof value !== 'number' || !Number.isFinite(value) || (allowZero ? value < 0 : value <= 0)) return null;
+    if (value >= 999500) return `${Number((value / 1000000).toFixed(2))}M`;
+    if (value >= 1000) return `${Math.round(value / 1000)}K`;
+    return String(Math.round(value));
+}
+
 // --- Plan rate-limit windows (agentState.usageLimits) ---
 
 export type UsageLimitWindowLike = {
@@ -150,6 +166,13 @@ export function getUsageLimitRows(limits: UsageLimitsLike): UsageLimitRow[] {
         resetsAt: typeof w.resetsAt === 'number' && Number.isFinite(w.resetsAt) ? w.resetsAt : null,
         status: getUsageLimitStatus(w),
     }));
+}
+
+/** The composer shows only the requested 5-hour and 7-day plan windows. */
+export function getComposerUsageRows(limits: UsageLimitsLike): UsageLimitRow[] {
+    return getUsageLimitRows(limits)
+        .filter(row => row.id === 'five_hour' || row.id === 'seven_day')
+        .map(row => ({ ...row, label: CHIP_WINDOW_LABELS[row.id] }));
 }
 
 /**

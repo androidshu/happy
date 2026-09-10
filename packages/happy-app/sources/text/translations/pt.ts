@@ -509,13 +509,17 @@ export const pt: TranslationStructure = {
         },
         context: {
             detailContext: ({ used, total }: { used: string; total: string }) => `${used} / ${total} de contexto`,
-            percentContext: ({ percent }: { percent: number }) => `${percent}% contexto`,
+            percentContext: ({ percent }: { percent: number }) => `Contexto usado ${percent}%`,
             percentWeek: ({ percent }: { percent: number }) => `${percent}% semana`,
             remaining: ({ percent }: { percent: number }) => `${percent}% restante`,
             clearedTitle: 'Contexto limpo',
             clearedSubtitle: 'As mensagens anteriores são apenas histórico',
         },
         usagePopup: {
+            unknown: 'desconhecido',
+            summary: ({ title, fiveHour, sevenDay, context, used }: { title: string; fiveHour: string; sevenDay: string; context: string; used: string }) => `${title}, 5h:${fiveHour}, 7d:${sevenDay}, context:${context}, used:${used}`,
+            remaining: 'Cota restante',
+            used: 'Cota usada',
             session: 'Sessão',
             week: 'Semana',
             month: 'Mês',

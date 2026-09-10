@@ -919,7 +919,7 @@ export const zhHans: TranslationStructure = {
         cliInstalled: '已安装',
         cliNotFound: '未找到',
         lastDetected: '最近检测',
-        untitledSession: '无标题会话',
+        untitledSession: '无标题',
         back: '返回',
         dangerZone: '危险区域',
         delete: '删除设备',

@@ -9,6 +9,7 @@ import { Avatar } from './Avatar';
 import { ActiveSessionsGroupCompact } from './ActiveSessionsGroupCompact';
 import { ProjectGroup } from './ProjectGroup';
 import { FlatSessionRow, flatListBackgroundColor } from './FlatSessionRow';
+import { SessionRenameButton } from './SessionRenameButton';
 import { buildFlatSessionRows, groupFlatSessionRowsByMachine, toFlatSessionRow, type FlatSessionRowData } from '@/utils/flatSessionList';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHasArchivedSessions, useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
@@ -810,6 +811,7 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
                         sessionId={session.id}
                         style={styles.sessionShortcutBadge}
                     />
+                    <SessionRenameButton sessionId={session.id} />
                 </View>
 
                 {session.identityLine ? (

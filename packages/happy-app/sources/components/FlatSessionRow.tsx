@@ -20,6 +20,7 @@ import type { Theme } from '@/theme';
 import { t } from '@/text';
 import { RigGitLineChanges } from './RigGitLineChanges';
 import { ShimmerText } from './ShimmerText';
+import { SessionRenameButton } from './SessionRenameButton';
 import { resolveFlatSessionRowPresentation } from '@/utils/flatSessionRowPresentation';
 
 const AGENT_LABEL_WIDTH = 50;
@@ -186,9 +187,12 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
                     </View>
                 </View>
 
-                <Text style={styles.generatedTitle} numberOfLines={1}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={[styles.generatedTitle, { flex: 1 }]} numberOfLines={1}>
                     {session.name}
                 </Text>
+                <SessionRenameButton sessionId={session.id} />
+                </View>
 
                 <View style={styles.workspaceRow}>
                     <View style={styles.workspaceLocation}>

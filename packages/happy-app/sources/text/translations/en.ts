@@ -932,7 +932,7 @@ export const en: TranslationStructure = {
         cliInstalled: 'Installed',
         cliNotFound: 'Not found',
         lastDetected: 'Last Detected',
-        untitledSession: 'Untitled Session',
+        untitledSession: 'Untitled',
         back: 'Back',
         dangerZone: 'Danger Zone',
         delete: 'Delete Machine',

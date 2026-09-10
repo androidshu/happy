@@ -15,10 +15,7 @@ import { initialMachineMetadata } from '@/daemon/run';
 import { configuration } from '@/configuration';
 import packageJson from '../../package.json';
 import { MessageQueue2, type PendingAttachment } from '@/utils/MessageQueue2';
-import { projectPath } from '@/projectPath';
-import { join } from 'node:path';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
-import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { MessageBuffer } from "@/ui/ink/messageBuffer";
 import { CodexDisplay } from "@/ui/ink/CodexDisplay";
 import { trimIdent } from "@/utils/trimIdent";
@@ -44,7 +41,6 @@ import { prepareCodexImageInputItems } from './utils/imageInput';
 import { createSerialAsyncHandler } from './utils/serialAsyncHandler';
 import { buildCodexThreadBackfillEnvelopes } from './utils/threadImageBackfill';
 import {
-    buildCodexTurnPrompt,
     hashCodexEnhancedMode,
     type CodexEnhancedMode,
 } from './codexPrompt';
@@ -278,7 +274,6 @@ export async function runCodex(opts: {
         model: opts.model ?? DEFAULT_CODEX_MODEL,
         effort: opts.effort ?? DEFAULT_CODEX_EFFORT,
     });
-    let currentAppendSystemPrompt: string | undefined = undefined;
 
     const resetCurrentModeDefaults = () => {
         // Reset permission mode and prompts to what the session was launched
@@ -289,7 +284,6 @@ export async function runCodex(opts: {
         // Model and effort deliberately remain sticky. Current apps also
         // reassert all three visible values on the next message.
         remoteModeState.resetAfterAbort();
-        currentAppendSystemPrompt = undefined;
         logger.debug('[Codex] Reset current mode defaults after abort');
     };
 
@@ -319,19 +313,9 @@ export async function runCodex(opts: {
             logger.debug(`[Codex] User message received with no effort override, using current: ${modeResolution.effort ?? 'default'}`);
         }
 
-        let messageAppendSystemPrompt = currentAppendSystemPrompt;
-        if (message.meta?.hasOwnProperty('appendSystemPrompt')) {
-            messageAppendSystemPrompt = message.meta.appendSystemPrompt || undefined;
-            currentAppendSystemPrompt = messageAppendSystemPrompt;
-            logger.debug(`[Codex] Append system prompt updated from user message: ${messageAppendSystemPrompt ? 'set' : 'reset to none'}`);
-        } else {
-            logger.debug(`[Codex] User message received with no append system prompt override, using current: ${currentAppendSystemPrompt ? 'set' : 'none'}`);
-        }
-
         const enhancedMode: EnhancedMode = {
             permissionMode: modeResolution.permissionMode,
             model: modeResolution.model,
-            appendSystemPrompt: messageAppendSystemPrompt,
             effort: modeResolution.effort,
         };
         const enqueueResult = enqueueCodexUserText({
@@ -523,9 +507,6 @@ export async function runCodex(opts: {
             } catch (e) {
                 logger.debug('[Codex] Error disconnecting Codex during termination', e);
             }
-
-            // Stop Happy MCP server
-            happyServer.stop();
 
             logger.debug('[Codex] Session termination complete, exiting');
             process.exit(0);
@@ -843,22 +824,6 @@ export async function runCodex(opts: {
         }
     });
 
-    // Start Happy MCP server (HTTP) and prepare STDIO bridge config for Codex
-    const happyServer = await startHappyServer(session);
-    // Launch the bridge via `node <path>` (rather than relying on the .mjs shebang)
-    // so it works on Windows, where Windows can't execute shebang scripts directly.
-    // codex would otherwise fail to start the MCP server, the change_title tool would
-    // not be visible to the model, and the model would improvise with shell echoes.
-    const bridgeEntrypoint = join(projectPath(), 'bin', 'happy-mcp.mjs');
-    const mcpServers = {
-        happy: {
-            command: process.execPath,
-            args: ['--no-warnings', '--no-deprecation', bridgeEntrypoint, '--url', happyServer.url]
-        }
-    } as const;
-    let first = true;
-    let appendSystemPromptInjected = false;
-
     try {
         logger.debug('[codex]: client.connect begin');
         await client.connect();
@@ -874,12 +839,9 @@ export async function runCodex(opts: {
                 messageBuffer,
                 threadId: opts.resumeThreadId,
                 cwd: process.cwd(),
-                mcpServers,
                 // Side chats start empty — keep the resume notice out of the UI.
                 announce: !isSideChat,
             });
-            first = false;
-            appendSystemPromptInjected = true;
         }
 
         const forkCodexThreadId = process.env.HAPPY_FORK_CODEX_THREAD_ID;
@@ -954,7 +916,6 @@ export async function runCodex(opts: {
                 permissionHandler.reset();
                 reasoningProcessor.abort();
                 diffProcessor.reset();
-                appendSystemPromptInjected = false;
                 thinking = false;
                 session.keepAlive(thinking, 'remote');
                 messageBuffer.addMessage('Context was reset', 'status');
@@ -996,7 +957,6 @@ export async function runCodex(opts: {
                         cwd: process.cwd(),
                         approvalPolicy: executionPolicy.approvalPolicy,
                         sandbox: executionPolicy.sandbox,
-                        mcpServers,
                     });
                     activeThreadId = startedThread.threadId;
                     session.updateMetadata((currentMetadata) => ({
@@ -1010,9 +970,6 @@ export async function runCodex(opts: {
                     continue;
                 }
 
-                const includeAppendSystemPrompt = Boolean(
-                    message.mode.appendSystemPrompt && !appendSystemPromptInjected,
-                );
                 const imageInputs = await prepareCodexImageInputItems(message.attachments, {
                     sessionId: session.sessionId,
                 });
@@ -1030,12 +987,6 @@ export async function runCodex(opts: {
                     });
                     continue;
                 }
-                const turnPrompt = buildCodexTurnPrompt({
-                    message: message.message,
-                    mode: message.mode,
-                    includeAppendSystemPrompt,
-                    includeTitleInstruction: first,
-                });
 
                 // The accepted turn is the source of truth for running state.
                 // Codex app-server may omit turn/started (notably when a queued
@@ -1051,17 +1002,13 @@ export async function runCodex(opts: {
                 // opening the protocol turn here ensures every later envelope
                 // carries the turn id required by mobile clients.
                 applyCodexMapperResult(startCodexSessionTurn(codexTurnState()));
-                const result = await client.sendTurnAndWait(turnPrompt, {
+                const result = await client.sendTurnAndWait(message.message, {
                     model: message.mode.model,
                     approvalPolicy: executionPolicy.approvalPolicy,
                     sandbox: executionPolicy.sandbox,
                     effort: message.mode.effort,
                     extraInputItems: imageInputs.inputItems,
                 });
-                first = false;
-                if (includeAppendSystemPrompt) {
-                    appendSystemPromptInjected = true;
-                }
 
                 if (result.aborted) {
                     // Turn was aborted (user abort or permission cancel).
@@ -1119,8 +1066,6 @@ export async function runCodex(opts: {
         await client.disconnect();
         logger.debug('[codex]: client.disconnect done');
         // Stop Happy MCP server
-        logger.debug('[codex]: happyServer.stop');
-        happyServer.stop();
 
         // Clean up ink UI
         if (process.stdin.isTTY) {

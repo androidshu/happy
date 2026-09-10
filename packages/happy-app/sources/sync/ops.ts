@@ -20,6 +20,43 @@ import {
 
 export type { SessionAgentModesPatch };
 
+/** Rename session metadata directly, without sending a message to the agent. */
+export async function sessionRename(sessionId: string, title: string): Promise<void> {
+    const encryption = sync.encryption.getSessionEncryption(sessionId);
+    const session = storage.getState().sessions[sessionId];
+    if (!encryption || !session?.metadata) throw new Error('Session metadata is unavailable');
+    const summary = { text: title, updatedAt: Date.now() };
+    let metadata = session.metadata;
+    let version = session.metadataVersion;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const next = { ...metadata, summary };
+        const result = await apiSocket.emitWithAck<{
+            result: 'success' | 'version-mismatch' | 'error';
+            version?: number;
+            metadata?: string;
+        }>('update-metadata', {
+            sid: sessionId,
+            metadata: await encryption.encryptRaw(next),
+            expectedVersion: version,
+        });
+        if (result.result === 'success' && result.version !== undefined) {
+            const current = storage.getState().sessions[sessionId];
+            if (current && current.metadataVersion <= result.version) {
+                storage.getState().applySessions([{ ...current, metadata: next, metadataVersion: result.version }]);
+            }
+            return;
+        }
+        if (result.result !== 'version-mismatch' || result.version === undefined || !result.metadata) {
+            throw new Error('Failed to rename session');
+        }
+        const latest = await encryption.decryptRaw(result.metadata);
+        if (!latest) throw new Error('Failed to decrypt session metadata');
+        metadata = latest;
+        version = result.version;
+    }
+    throw new Error('Session changed concurrently; please retry renaming');
+}
+
 // Strict type definitions for all operations
 
 // Permission operation types

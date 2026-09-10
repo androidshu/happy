@@ -91,14 +91,13 @@ export function useSessionStatus(session: Session): SessionStatus {
 }
 
 /**
- * Extracts a display name from a session's metadata path.
- * Returns the last segment of the path, or 'unknown' if no path is available.
+ * Display the synced title, or the unnamed-session label.
  */
 export function getSessionName(session: Session): string {
-    if (session.metadata?.summary) {
+    if (session.metadata?.summary?.text) {
         return session.metadata.summary.text;
     }
-    return t('session.newChat');
+    return t('machine.untitledSession');
 }
 
 /**

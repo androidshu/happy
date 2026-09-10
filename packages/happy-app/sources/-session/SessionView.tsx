@@ -1226,6 +1226,7 @@ export function SessionViewLoaded({
                     input={input}
                     placeholder={placeholder}
                     floatingDock={usesFloatingMobileDock}
+                    opaqueDockOffset={composerY + composerCardOffset}
                     onDockInsetChange={handleBottomDockInsetChange}
                 />
             </View >

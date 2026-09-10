@@ -1,7 +1,6 @@
 import { useHeaderHeight } from '@/utils/responsive';
 import * as React from 'react';
 import { LayoutChangeEvent, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,6 +12,7 @@ interface AgentContentViewProps {
     placeholder?: React.ReactNode | null;
     /** Keep the composer as an overlay while the chat scrolls beneath it. */
     floatingDock?: boolean;
+    opaqueDockOffset?: number;
     /** Measured visual inset that the inverted chat list reserves at its bottom. */
     onDockInsetChange?: (inset: number) => void;
 }
@@ -22,6 +22,7 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
     content,
     placeholder,
     floatingDock = false,
+    opaqueDockOffset = 0,
     onDockInsetChange,
 }) => {
     const { theme } = useUnistyles();
@@ -39,8 +40,8 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
     }, []);
 
     React.useEffect(() => {
-        onDockInsetChange?.(floatingDock ? dockHeight + keyboardInset + safeArea.bottom : 0);
-    }, [dockHeight, floatingDock, keyboardInset, onDockInsetChange, safeArea.bottom]);
+        onDockInsetChange?.(floatingDock ? dockHeight + keyboardInset : 0);
+    }, [dockHeight, floatingDock, keyboardInset, onDockInsetChange]);
 
     if (floatingDock) {
         return (
@@ -57,7 +58,7 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
                             top: safeArea.top + headerHeight,
                             left: 0,
                             right: 0,
-                            bottom: dockHeight + keyboardInset + safeArea.bottom,
+                            bottom: dockHeight + keyboardInset,
                         }}
                         contentContainerStyle={{ alignItems: 'center', justifyContent: 'center', flex: 1 }}
                         keyboardShouldPersistTaps="handled"
@@ -66,40 +67,24 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
                         {placeholder}
                     </ScrollView>
                 )}
-                {dockHeight > 0 && (
-                    <View
-                        pointerEvents="none"
-                        style={{
-                            position: 'absolute',
-                            left: 0,
-                            right: 0,
-                            bottom: keyboardInset,
-                            height: dockHeight + safeArea.bottom + 28,
-                            zIndex: 1,
-                        }}
-                    >
-                        <LinearGradient
-                            colors={theme.dark
-                                ? ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.20)', 'rgba(0, 0, 0, 0.66)']
-                                : ['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0.18)', 'rgba(255, 255, 255, 0.74)']}
-                            locations={[0, 0.42, 1]}
-                            start={{ x: 0.5, y: 0 }}
-                            end={{ x: 0.5, y: 1 }}
-                            style={{ flex: 1 }}
-                        />
-                    </View>
-                )}
                 <View
+                    testID="chat-bottom-dock"
                     onLayout={handleDockLayout}
                     pointerEvents="box-none"
                     style={{
                         position: 'absolute',
                         left: 0,
                         right: 0,
-                        bottom: keyboardInset + safeArea.bottom,
+                        bottom: keyboardInset,
+                        paddingBottom: safeArea.bottom,
                         zIndex: 2,
                     }}
                 >
+                    <View
+                        testID="chat-bottom-background"
+                        pointerEvents="none"
+                        style={{ position: 'absolute', top: opaqueDockOffset, bottom: 0, left: 0, right: 0, backgroundColor: theme.colors.surface }}
+                    />
                     {input}
                 </View>
             </View>

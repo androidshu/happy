@@ -13,6 +13,7 @@ interface AgentContentViewProps {
     placeholder?: React.ReactNode | null;
     /** Keep the composer as an overlay while the chat scrolls beneath it. */
     floatingDock?: boolean;
+    opaqueDockOffset?: number;
     /** Measured visual inset that the inverted chat list reserves at its bottom. */
     onDockInsetChange?: (inset: number) => void;
 }

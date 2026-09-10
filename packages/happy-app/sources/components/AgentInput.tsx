@@ -28,7 +28,6 @@ import { compactCount } from '@/utils/rigGitLineChanges';
 import { t } from '@/text';
 import { Metadata } from '@/sync/storageTypes';
 import { isRunningOnMac } from '@/utils/platform';
-import { MobileGlassSurface } from './MobileGlass';
 import { AnimatedClickAwayBackdrop, AnimatedFade } from './AnimatedOverlay';
 import { BubblePressable } from './BubblePressable';
 import { resolveAgentInputPrimaryAction } from './agentInputPrimaryAction';
@@ -179,13 +178,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         elevation: theme.dark ? 4 : 2,
     },
     mobileUnifiedPanel: {
-        // The frosted material is supplied by MobileGlassSurface. The dense
-        // tint keeps the transcript illegible behind it without losing glass.
-        backgroundColor: Platform.select({
-            ios: 'transparent',
-            android: theme.colors.glass.backgroundStrong,
-            default: theme.colors.input.background,
-        }),
+        backgroundColor: theme.colors.input.background,
         borderRadius: MOBILE_COMPOSER_METRICS.shellRadius,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.glass.border,
@@ -1895,11 +1888,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         compactMobileComposer && styles.unifiedPanelShadow,
                         compactMobileComposer && styles.mobileUnifiedPanelShadow,
                     ]}>
-                        <MobileGlassSurface
-                            enabled={compactMobileComposer}
-                            nativeEffect
-                            material="frosted"
-                            intensity={92}
+                        <View
                             style={[
                                 styles.unifiedPanel,
                                 compactMobileComposer && styles.mobileUnifiedPanel,
@@ -2172,7 +2161,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         </Shaker>
                     </View>
                     ) : desktopActionControls}
-                        </MobileGlassSurface>
+                        </View>
                     </View>
                 </Shaker>
 
